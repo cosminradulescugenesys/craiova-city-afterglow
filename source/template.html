@@ -2,7 +2,7 @@
 <html lang=en>
 <head>
 <meta charset=utf-8>
-<title>Afterglow City</title>
+<title>Craiova Afterglow</title>
 <meta name=viewport content="width=device-width,initial-scale=1">
 <meta name=theme-color content=#0c0818>
 <style>
@@ -86,6 +86,11 @@ button:active { transform: translateY(.1em); filter: brightness(.9); }
 .g #o { display: flex; }
 .p #o { display: none; }
 #i { position: absolute; top: 1em; left: 1.2em; margin: 0; font: .8em/1.6 ui-monospace, Consolas, monospace; white-space: pre-wrap; text-shadow: 0 1px 4px #000; pointer-events: none; }
+#n {
+  position: absolute; left: 1.4em; bottom: 1.2em; margin: 0; font-size: .85em; letter-spacing: .18em; text-transform: uppercase;
+  color: #ffd8bd; text-shadow: 0 1px 6px #000; pointer-events: none;
+}
+body:not(.g) #n { display: none; }
 #v {
   position: absolute; left: 50%; bottom: 8%; transform: translate(-50%, .5em); padding: .5em 1.2em; border-radius: 2em;
   background: #0c0818b0; font-size: .9em; letter-spacing: .2em; text-transform: uppercase; color: #ffd8bd;
@@ -98,10 +103,10 @@ body:not(.g) #v { display: none; }
 <body class=l>
 <canvas id=c></canvas>
 <div id=m>
-  <h1>Afterglow City</h1>
-  <p>a city you can fly through, made of nothing but code</p>
+  <h1>Craiova Afterglow</h1>
+  <p>the real Craiova at dusk, built from OpenStreetMap and flown in your browser</p>
   <div id=a>
-    <div id=l><div id=p><i id=b></i></div><p id=s>Waking the city…</p><p id=w hidden>Use Chrome or Edge for the best experience</p></div>
+    <div id=l><div id=p><i id=b></i></div><p id=s>Waking Craiova…</p><p id=w hidden>Use Chrome or Edge for the best experience</p></div>
     <div id=g>
       <button id=d>Enter the city</button>
       <p class=row id=t><span>Time</span><button>Dusk</button><button>Night</button><button>Dawn</button></p>
@@ -125,11 +130,12 @@ body:not(.g) #v { display: none; }
       <p id=h>Hold to fly forward · slide to steer · second finger to go faster</p>
     </div>
   </div>
-  <p id=f>Inspired by <a href=https://github.com/Noniv/abyssal-garden target=_blank rel=noopener>Abyssal Garden</a></p>
+  <p id=f>Map data © <a href=https://www.openstreetmap.org/copyright target=_blank rel=noopener>OpenStreetMap contributors</a> · based on <a href=https://github.com/J-o-h-n-M/afterglow-city target=_blank rel=noopener>Afterglow City</a> and <a href=https://github.com/Noniv/abyssal-garden target=_blank rel=noopener>Abyssal Garden</a></p>
 </div>
 <button id=o aria-label=Menu>≡</button>
 <p id=v></p>
 <pre id=i hidden></pre>
+<p id=n></p>
 <script>
 /*SCRIPT*/
 </script>

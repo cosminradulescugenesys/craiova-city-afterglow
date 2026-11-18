@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------------
 // renderer.js: WebGPU directly, no engine. One storage buffer holds every instance in the city;
-// a mirrored pass renders the reflection for the river and the wet streets; bloom, then tone mapping.
+// a mirrored pass renders the reflection for the lakes and the wet streets; bloom, then tone mapping.
 // ---------------------------------------------------------------------------
 
 const HDR = 'rgba16float';
@@ -19,10 +19,9 @@ async function createRenderer(canvas, Q, world, onLost) {
   const VF = GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT;
 
   // ---- meshes ----
-  const rzMin = RIVER.z - 16 - RIVER.hw - 6, rzMax = RIVER.z + 16 + RIVER.hw + 6;
   const meshSrc = {
-    cube: cubeMesh(), cyl: cylinderMesh(14), sphere: sphereMesh(2), cone: cylinderMesh(12, 0, true), beam: beamMesh(24),
-    ground: quadMesh(-7000, -7000, 7000, 7000, 0), water: quadMesh(-7000, rzMin, 7000, rzMax, RIVER.level),
+    cube: cubeMesh(), cyl: cylinderMesh(14), sphere: sphereMesh(2), cone: cylinderMesh(12, 0, true), prism: prismMesh(), beam: beamMesh(24),
+    ground: quadMesh(-9000, -9000, 9000, 9000, 0),
   };
   const mesh = {};
   for (const [k, m] of Object.entries(meshSrc)) {
@@ -34,7 +33,7 @@ async function createRenderer(canvas, Q, world, onLost) {
   }
 
   // ---- all instances in one storage buffer; each draw starts at its own firstInstance ----
-  const order = ['cube', 'cyl', 'sphere', 'cone', 'beam', 'sprite'];
+  const order = ['cube', 'cyl', 'sphere', 'cone', 'prism', 'beam', 'sprite'];
   const ranges = {};
   let total = 0;
   for (const k of order) { ranges[k] = { first: total, count: world.groups[k].n }; total += world.groups[k].n; }
@@ -85,16 +84,15 @@ async function createRenderer(canvas, Q, world, onLost) {
     multisample: { count: o.samples },
   });
   const makeSet = async (samples, mirrored) => {
-    const [sky, ground, props, sprite, water, beam, rain] = await Promise.all([
+    const [sky, ground, props, sprite, beam, rain] = await Promise.all([
       pipe({ vs: 'vs_full', fs: 'fs_sky', samples, depthWrite: false, depthCompare: 'always' }),
       pipe({ vs: 'vs_ground', fs: 'fs_ground', buffers: VBUF, samples }),
       pipe({ vs: 'vs_props', fs: 'fs_props', buffers: VBUF, samples, cull: mirrored ? 'none' : 'back' }),
       pipe({ vs: 'vs_sprite', fs: 'fs_sprite', samples, topology: 'triangle-strip', blend: ADD, depthWrite: false }),
-      mirrored ? null : pipe({ vs: 'vs_ground', fs: 'fs_water', buffers: VBUF, samples }),
       mirrored ? null : pipe({ vs: 'vs_beam', fs: 'fs_beam', buffers: VBUF, samples, blend: ADD, depthWrite: false }),
       mirrored ? null : pipe({ vs: 'vs_rain', fs: 'fs_rain', samples, topology: 'triangle-strip', blend: ADD, depthWrite: false }),
     ]);
-    return { sky, ground, props, sprite, water, beam, rain };
+    return { sky, ground, props, sprite, beam, rain };
   };
   const P = await makeSet(Q.msaa, false);
   const PR = Q.reflections ? await makeSet(1, true) : null;
@@ -178,13 +176,13 @@ async function createRenderer(canvas, Q, world, onLost) {
     d.set([...env.sunDir, env.stars], 44);
     d.set([...env.sunCol, 0], 48);
     d.set([...env.amb, env.rain], 52);
-    d.set([...env.glow, RIVER.level], 56);
+    d.set([...env.glow, 0.4], 56);
     d.set(p1, 60); d.set(p2, 64);
     d.set([...right, 0], 68); d.set([...up, 0], 72);
   }
 
   const drawProps = (pass) => {
-    for (const k of ['cube', 'cyl', 'sphere', 'cone']) {
+    for (const k of ['cube', 'cyl', 'sphere', 'cone', 'prism']) {
       const r = ranges[k];
       if (!r.count) continue;
       pass.setVertexBuffer(0, mesh[k].vb); pass.setIndexBuffer(mesh[k].ib, 'uint32');
@@ -202,9 +200,9 @@ async function createRenderer(canvas, Q, world, onLost) {
     fillU(vp, mat4Inv(vp), view.pos, env, t, basis.r, basis.u, [0, w, h, PR ? 1 : 0], [pixA, env.wet, env.beams, 0]);
     device.queue.writeBuffer(uMain, 0, uData);
     if (PR) {
-      const M = mirrorY(RIVER.level);
+      const M = mirrorY(0);
       const vpr = mat4Mul(vp, M);
-      const cr = [view.pos[0], 2 * RIVER.level - view.pos[1], view.pos[2]];
+      const cr = [view.pos[0], -view.pos[1], view.pos[2]];
       fillU(vpr, mat4Inv(vpr), cr, env, t, basis.r, [basis.u[0], -basis.u[1], basis.u[2]], [1, RT.rw, RT.rh, 0], [pixA * 2, env.wet, env.beams, 0]);
       device.queue.writeBuffer(uRefl, 0, uData);
     }
@@ -235,7 +233,6 @@ async function createRenderer(canvas, Q, world, onLost) {
       pass.setPipeline(P.sky); pass.draw(3);
       drawQuad(pass, P.ground, 'ground');
       pass.setPipeline(P.props); drawProps(pass);
-      drawQuad(pass, P.water, 'water');
       pass.setPipeline(P.sprite); pass.draw(4, ranges.sprite.count, 0, ranges.sprite.first);
       if (ranges.beam.count && env.beams > 0.01) {
         pass.setPipeline(P.beam); pass.setVertexBuffer(0, mesh.beam.vb); pass.setIndexBuffer(mesh.beam.ib, 'uint32');

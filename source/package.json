@@ -1,11 +1,12 @@
 {
-  "name": "afterglow-city",
+  "name": "craiova-afterglow",
   "private": true,
   "type": "module",
-  "description": "A procedural city at dusk you can fly through, rendered with WebGPU in a single HTML file",
+  "description": "Real-life Craiova at dusk, built from OpenStreetMap data, that you can fly through, rendered with WebGPU in a single HTML file",
   "scripts": {
     "build": "node build.mjs",
-    "build:min": "node build.mjs --min"
+    "build:min": "node build.mjs --min",
+    "data": "node tools/fetch-osm.mjs && node tools/build-data.mjs"
   },
   "license": "MIT"
 }

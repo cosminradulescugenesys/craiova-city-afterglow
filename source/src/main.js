@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------------
 // main.js: startup, the camera and its controls, the time of day and the weather,
-// the menu, the six viewpoints and the automatic resolution scaling.
+// the menu, the six viewpoints, the street / neighbourhood label and the automatic resolution scaling.
 // ---------------------------------------------------------------------------
 
 const $ = (id) => document.getElementById(id);
@@ -28,15 +28,15 @@ const norm = (v) => { const l = Math.hypot(...v); return v.map((x) => x / l); };
 const TIMES = {
   dusk: {
     label: 'Dusk', skyTop: [0.012, 0.022, 0.085], skyHor: [0.34, 0.13, 0.12], sunDir: norm([-0.55, 0.02, -0.83]), sunCol: [1.3, 0.45, 0.18],
-    amb: [0.022, 0.022, 0.045], glow: [0.55, 0.24, 0.14], lit: 0.45, fog: 0.00055, stars: 0.35, exposure: 1.0, beams: 0.5,
+    amb: [0.022, 0.022, 0.045], glow: [0.55, 0.24, 0.14], lit: 0.45, fog: 0.0004, stars: 0.35, exposure: 1.0, beams: 0.5,
   },
   night: {
     label: 'Night', skyTop: [0.003, 0.004, 0.014], skyHor: [0.045, 0.035, 0.07], sunDir: norm([0.35, 0.5, -0.7]), sunCol: [0.07, 0.08, 0.12],
-    amb: [0.01, 0.011, 0.02], glow: [0.45, 0.22, 0.12], lit: 0.55, fog: 0.0006, stars: 1, exposure: 1.35, beams: 1,
+    amb: [0.01, 0.011, 0.02], glow: [0.45, 0.22, 0.12], lit: 0.55, fog: 0.00045, stars: 1, exposure: 1.35, beams: 1,
   },
   dawn: {
     label: 'Dawn', skyTop: [0.06, 0.11, 0.26], skyHor: [0.6, 0.38, 0.36], sunDir: norm([0.75, 0.04, 0.6]), sunCol: [1.4, 0.85, 0.55],
-    amb: [0.07, 0.07, 0.1], glow: [0.45, 0.33, 0.3], lit: 0.16, fog: 0.0008, stars: 0.05, exposure: 0.9, beams: 0,
+    amb: [0.07, 0.07, 0.1], glow: [0.45, 0.33, 0.3], lit: 0.16, fog: 0.0006, stars: 0.05, exposure: 0.9, beams: 0,
   },
 };
 const TIME_ORDER = ['dusk', 'night', 'dawn'];
@@ -57,7 +57,9 @@ function stepEnv(dt) {
 
 // ---- build the city ----
 const progress = (f, label) => { $('b').style.transform = `scaleX(${f})`; if (label) $('s').textContent = label + '…'; };
-const world = await buildWorld(Q, progress);
+progress(0.01, 'Unpacking the map');
+const city = await loadCity();
+const world = await buildWorld(Q, progress, city);
 progress(0.95, 'Compiling shaders');
 const R = await createRenderer(canvas, Q, world, (info) => {
   console.error('GPU device lost:', info.message);
@@ -82,15 +84,15 @@ applySize();
 addEventListener('resize', applySize);
 
 // ---- camera ----
-const cam = { pos: [0, 200, 900], yaw: 0, pitch: -0.2, vel: [0, 0, 0], fov: 1.05 };
+const cam = { pos: [0, 400, 1500], yaw: 0, pitch: -0.2, vel: [0, 0, 0], fov: 1.05 };
 function lookAt(pos, at) {
   const d = [at[0] - pos[0], at[1] - pos[1], at[2] - pos[2]];
   cam.pos = [...pos]; cam.vel = [0, 0, 0];
   cam.yaw = Math.atan2(d[0], -d[2]); cam.pitch = Math.atan2(d[1], Math.hypot(d[0], d[2]));
 }
 function orbit(t) {
-  const a = 0.5 + t * 0.016;
-  lookAt([150 + 980 * Math.cos(a), 250 + 50 * Math.sin(t * 0.05), -300 + 980 * Math.sin(a)], [150, 70, -330]);
+  const a = 0.5 + t * 0.012, [cx, cz] = world.center;
+  lookAt([cx + 1500 * Math.cos(a), 380 + 60 * Math.sin(t * 0.05), cz + 1500 * Math.sin(a)], [cx, 20, cz]);
 }
 // glide along walls instead of flying into them
 function collide(p) {
@@ -100,19 +102,23 @@ function collide(p) {
       const list = grid.get(gx * 100003 + gz);
       if (!list) continue;
       for (const i of list) {
-        const o = i * 6;
-        const cx = clamp(p[0], boxes[o], boxes[o + 3]), cy = clamp(p[1], boxes[o + 1], boxes[o + 4]), cz = clamp(p[2], boxes[o + 2], boxes[o + 5]);
-        const dx = p[0] - cx, dy = p[1] - cy, dz = p[2] - cz, d2 = dx * dx + dy * dy + dz * dz;
+        // boxes face any way: work in the box's own frame, then turn the push back
+        const o = i * 10, c = boxes[o + 8], sn = boxes[o + 9], dx0 = p[0] - boxes[o + 6], dz0 = p[2] - boxes[o + 7];
+        const lx = dx0 * c + dz0 * sn, lz = -dx0 * sn + dz0 * c;
+        const cx = clamp(lx, boxes[o], boxes[o + 3]), cy = clamp(p[1], boxes[o + 1], boxes[o + 4]), cz = clamp(lz, boxes[o + 2], boxes[o + 5]);
+        const dx = lx - cx, dy = p[1] - cy, dz = lz - cz, d2 = dx * dx + dy * dy + dz * dz;
         if (d2 >= r * r) continue;
+        let ux = 0, uy = 0, uz = 0;
         if (d2 > 1e-8) {
           const d = Math.sqrt(d2), push = (r - d) / d;
-          p[0] += dx * push; p[1] += dy * push; p[2] += dz * push;
+          ux = dx * push; uy = dy * push; uz = dz * push;
         } else {
           // inside: leave through the nearest face
-          const faces = [p[0] - boxes[o], boxes[o + 3] - p[0], p[1] - boxes[o + 1], boxes[o + 4] - p[1], p[2] - boxes[o + 2], boxes[o + 5] - p[2]];
-          const m = faces.indexOf(Math.min(...faces)), ax = m >> 1;
-          p[ax] = m & 1 ? boxes[o + 3 + ax] + r : boxes[o + ax] - r;
+          const faces = [lx - boxes[o], boxes[o + 3] - lx, p[1] - boxes[o + 1], boxes[o + 4] - p[1], lz - boxes[o + 2], boxes[o + 5] - lz];
+          const m = faces.indexOf(Math.min(...faces)), ax = m >> 1, target = m & 1 ? boxes[o + 3 + ax] + r : boxes[o + ax] - r;
+          if (ax === 0) ux = target - lx; else if (ax === 1) uy = target - p[1]; else uz = target - lz;
         }
+        p[0] += ux * c - uz * sn; p[1] += uy; p[2] += ux * sn + uz * c;
       }
     }
   p[1] = clamp(p[1], 1.5, 1600);
@@ -171,7 +177,7 @@ addEventListener('keydown', (e) => {
   if (e.code === 'Escape' && playing && !document.pointerLockElement) { openMenu(); return; }
   if (!playing || e.repeat) return;
   const n = /^Digit([1-6])$/.exec(e.code);
-  if (n) { const v = world.views[+n[1] - 1]; lookAt(v.pos, v.at); toast(v.name); }
+  if (n) { const v = world.views[+n[1] - 1]; lookAt(v.pos, v.at); collide(cam.pos); toast(v.name); }
   if (e.code === 'KeyM') { setSound(!soundOn); toast(soundOn ? 'Sound on' : 'Sound off'); }
   if (e.code === 'KeyH') { showStats = !showStats; $('i').hidden = !showStats; }
   if (e.code === 'KeyT') { setTime(TIME_ORDER[(TIME_ORDER.indexOf(timeKey) + 1) % 3]); toast(TIMES[timeKey].label); }
@@ -211,7 +217,7 @@ window.__city = { cam, lookAt, world };
 
 // ---- the loop ----
 setState('m');
-let last = performance.now(), t0 = last, frames = 0, statT = 0, statN = 0, perfT = 0, perfN = 0;
+let labelT = 0, last = performance.now(), t0 = last, frames = 0, statT = 0, statN = 0, perfT = 0, perfN = 0;
 function frame(now) {
   const dt = Math.min(0.1, (now - last) / 1000);
   last = now;
@@ -232,6 +238,13 @@ function frame(now) {
       const p = loadPrefs(); p.scale = +scale.toFixed(3); savePrefs(p);
       perfT = 0; perfN = 0;
     }
+  }
+  labelT += dt;
+  if (labelT > 0.4 && entered) {
+    labelT = 0;
+    const st = world.label.street(cam.pos[0], cam.pos[2]), pl = world.label.place(cam.pos[0], cam.pos[2]);
+    const txt = [st, pl].filter(Boolean).join('  ·  ');
+    if (txt !== $('n').textContent) $('n').textContent = txt;
   }
   statT += dt; statN++;
   if (showStats && statT > 0.5) {

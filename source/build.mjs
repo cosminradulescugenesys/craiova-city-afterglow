@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 // concatenation order matters: every file shares one scope
-const FILES = ['quality.js', 'math.js', 'world.js', 'shaders.js', 'renderer.js', 'audio.js', 'main.js'];
+const FILES = ['quality.js', 'math.js', 'data.js', 'world.js', 'shaders.js', 'renderer.js', 'audio.js', 'main.js'];
 const min = process.argv.includes('--min');
 
 let js = FILES.map((f) => readFileSync(path.join(here, 'src', f), 'utf8')).join('\n');

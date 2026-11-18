@@ -1,27 +1,24 @@
 // ---------------------------------------------------------------------------
-// world.js: the city layout. Streets, blocks, towers, the river and its bridges, the park,
-// traffic, the elevated train, the ferris wheel, the blimp and the baked ground light.
+// world.js: builds Craiova from real OpenStreetMap data (data.js): every building as a box,
+// the street network with its lanes and junctions, the parks and lakes, the railway and the
+// tram lines, the stadium bowls, street lamps, trees, traffic and the baked ground light.
 // A good place to start.
 // ---------------------------------------------------------------------------
 
-const WORLD = 1500;                 // the city spans -WORLD..WORLD on x and z (meters)
-const RIVER = { z: 150, hw: 55, ramp: 45, h: 7, level: -0.8 };
+const WORLD = 4000;                 // the map spans -WORLD..WORLD on x and z (metres); x runs east, z runs south
 const ROADY = 0.1;                  // top of the asphalt
-const TRAIN_Y = 14;                 // top of the elevated track
-const BLIMP_Y = 270;
-const LAYOUT_N = 2048, LIGHT_N = 1024;
+const LAYOUT_N = 4096, LIGHT_N = 2048;
 const MAT = { basic: 0, building: 1, emissive: 2, road: 3, sidewalk: 4, foliage: 5, neon: 7, train: 8 };
-const ANIM = { none: 0, car: 1, train: 2, wheel: 3, gondola: 4, blink: 5, blimp: 6, beam: 7 };
+const ANIM = { none: 0, car: 1, blink: 5, beam: 7 };
+const MAP_REF = { lat0: 44.3125, lon0: 23.804 };
+// latitude / longitude to metres on the map (the same projection tools/map.mjs used to make data.js)
+function geo(lat, lon) { return [(lon - MAP_REF.lon0) * 111320 * Math.cos((MAP_REF.lat0 * Math.PI) / 180), -(lat - MAP_REF.lat0) * 110574]; }
 
-function riverZ(x) { return RIVER.z + 10 * Math.sin(x * 0.0023 + 0.7) + 5 * Math.sin(x * 0.0061); }
-function bridgeH(x, z) {
-  const d = Math.abs(z - riverZ(x)) - RIVER.hw, k = clamp(1 - d / RIVER.ramp, 0, 1);
-  return RIVER.h * k * k * (3 - 2 * k);
-}
-// how tall the city wants to be here: downtown north of the river, two smaller centres south of it
-function skylineAt(x, z) {
-  const g = (cx, cz, s, h) => h * Math.exp(-((x - cx) ** 2 + (z - cz) ** 2) / (s * s));
-  return 10 + g(150, -380, 430, 330) + g(-750, 650, 300, 150) + g(900, 820, 260, 95) + g(-1000, -900, 260, 60);
+// the compressed OpenStreetMap extract (data.js) back into plain arrays
+async function loadCity() {
+  const bin = Uint8Array.from(atob(CITY_DATA), (c) => c.charCodeAt(0));
+  const stream = new Blob([bin]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+  return JSON.parse(await new Response(stream).text());
 }
 
 // growable list of instances, 24 floats each: 3x4 transform, color, p, q
@@ -39,32 +36,29 @@ class InstList {
   data() { return this.a.subarray(0, this.n * 24); }
 }
 
-// the elevated train runs a rounded rectangle; the same path is written in WGSL (shaders.js)
-function trainPath(T, s0) {
-  const { cx, cz, hx, hz, r } = T, a = 2 * (hx - r), b = 2 * (hz - r), c = (Math.PI / 2) * r, L = 2 * a + 2 * b + 4 * c;
-  let s = s0 - Math.floor(s0 / L) * L;
-  const x0 = cx - hx + r, x1 = cx + hx - r, z0 = cz - hz + r, z1 = cz + hz - r;
-  const arc = (ox, oz, ang) => [ox + r * Math.cos(ang), oz + r * Math.sin(ang), -Math.sin(ang), Math.cos(ang)];
-  if (s < a) return [x0 + s, cz - hz, 1, 0]; s -= a;
-  if (s < c) return arc(x1, z0, -Math.PI / 2 + s / r); s -= c;
-  if (s < b) return [cx + hx, z0 + s, 0, 1]; s -= b;
-  if (s < c) return arc(x1, z1, s / r); s -= c;
-  if (s < a) return [x1 - s, cz + hz, -1, 0]; s -= a;
-  if (s < c) return arc(x0, z1, Math.PI / 2 + s / r); s -= c;
-  if (s < b) return [cx - hx, z1 - s, 0, -1]; s -= b;
-  return arc(x0, z0, Math.PI + s / r);
+// delta-coded polylines back into points; every record starts with `head` numbers, then the point count
+function readLines(arr, head, cb) {
+  for (let i = 0; i < arr.length;) {
+    const h = arr.slice(i, i + head), n = arr[i + head];
+    i += head + 1;
+    const pts = [];
+    let x = 0, z = 0;
+    for (let k = 0; k < n; k++) { x += arr[i++]; z += arr[i++]; pts.push([x / 2, z / 2]); }
+    cb(h, pts);
+  }
 }
-function trainLength(T) { return 4 * (T.hx - T.r) + 4 * (T.hz - T.r) + 2 * Math.PI * T.r; }
 
-async function buildWorld(Q, progress) {
-  const rng = mulberry32(20261114);
+const KIND = { house: 0, bloc: 1, commercial: 2, industrial: 3, civic: 4, church: 5 };
+const AREA = { park: 1, wood: 2, industrial: 3, water: 4, farm: 5, pitch: 6, paved: 7, grave: 8, stadium: 9, residential: 10 };
+
+async function buildWorld(Q, progress, city) {
+  const rng = mulberry32(20261118);
   const R = (a, b) => a + (b - a) * rng();
-  const pick = (arr) => arr[Math.floor(rng() * arr.length)];
   // decorations that depend on the detail level draw from their own stream, so every level is the same city
   const rd = mulberry32(5150), Rd = (a, b) => a + (b - a) * rd(), pickd = (arr) => arr[Math.floor(rd() * arr.length)];
   const tick = async (f, label) => { progress(f, label); await new Promise((r) => setTimeout(r, 0)); };
 
-  const G = { cube: new InstList(), cyl: new InstList(), sphere: new InstList(), cone: new InstList(), beam: new InstList(), sprite: new InstList() };
+  const G = { cube: new InstList(), cyl: new InstList(), sphere: new InstList(), cone: new InstList(), prism: new InstList(), beam: new InstList(), sprite: new InstList() };
   const layout = new Uint8Array(LAYOUT_N * LAYOUT_N * 4);
   const light = new Float32Array(LIGHT_N * LIGHT_N * 3);
   const foot = new Float32Array(LIGHT_N * LIGHT_N);
@@ -73,48 +67,90 @@ async function buildWorld(Q, progress) {
 
   // ---------- rasterising into the ground textures ----------
   const lx = (x) => (x / (2 * WORLD) + 0.5) * LAYOUT_N;
-  function layRect(x0, z0, x1, z1, type) {
-    const c0 = Math.max(0, Math.round(lx(x0))), c1 = Math.min(LAYOUT_N, Math.round(lx(x1)));
-    const r0 = Math.max(0, Math.round(lx(z0))), r1 = Math.min(LAYOUT_N, Math.round(lx(z1)));
-    for (let r = r0; r < r1; r++) for (let c = c0; c < c1; c++) layout[(r * LAYOUT_N + c) * 4] = type;
+  const PXL = LAYOUT_N / (2 * WORLD);
+  function layPoly(pts, type) {
+    // scanline fill, even-odd
+    let z0 = 1e9, z1 = -1e9;
+    for (const p of pts) { z0 = Math.min(z0, p[1]); z1 = Math.max(z1, p[1]); }
+    const r0 = Math.max(0, Math.floor(lx(z0))), r1 = Math.min(LAYOUT_N - 1, Math.ceil(lx(z1)));
+    const xs = [];
+    for (let r = r0; r <= r1; r++) {
+      const z = ((r + 0.5) / LAYOUT_N - 0.5) * 2 * WORLD;
+      xs.length = 0;
+      for (let i = 0, n = pts.length; i < n; i++) {
+        const a = pts[i], b = pts[(i + 1) % n];
+        if ((a[1] <= z) !== (b[1] <= z)) xs.push(a[0] + ((z - a[1]) / (b[1] - a[1])) * (b[0] - a[0]));
+      }
+      xs.sort((p, q) => p - q);
+      for (let k = 0; k + 1 < xs.length; k += 2) {
+        const c0 = Math.max(0, Math.round(lx(xs[k]))), c1 = Math.min(LAYOUT_N, Math.round(lx(xs[k + 1])));
+        for (let c = c0; c < c1; c++) layout[(r * LAYOUT_N + c) * 4] = type;
+      }
+    }
+  }
+  // stamp a disk of one ground type
+  function layDiskType(x, z, rad, type) {
+    const cx = lx(x), cz = lx(z), rr = rad * PXL;
+    for (let r = Math.max(0, Math.floor(cz - rr)); r <= Math.min(LAYOUT_N - 1, Math.ceil(cz + rr)); r++)
+      for (let c = Math.max(0, Math.floor(cx - rr)); c <= Math.min(LAYOUT_N - 1, Math.ceil(cx + rr)); c++)
+        if ((c + 0.5 - cx) ** 2 + (r + 0.5 - cz) ** 2 <= rr * rr) layout[(r * LAYOUT_N + c) * 4] = type;
   }
   function layDisk(x, z, rad, ch, soft = 1.2) {
-    const px = LAYOUT_N / (2 * WORLD), cx = lx(x), cz = lx(z), rr = (rad + soft) * px;
+    const cx = lx(x), cz = lx(z), rr = (rad + soft) * PXL;
     for (let r = Math.max(0, Math.floor(cz - rr)); r <= Math.min(LAYOUT_N - 1, Math.ceil(cz + rr)); r++)
       for (let c = Math.max(0, Math.floor(cx - rr)); c <= Math.min(LAYOUT_N - 1, Math.ceil(cx + rr)); c++) {
-        const d = Math.hypot(c + 0.5 - cx, r + 0.5 - cz) / px, v = Math.round(255 * smooth(rad + soft, rad - soft, d));
+        const d = Math.hypot(c + 0.5 - cx, r + 0.5 - cz) / PXL, v = Math.round(255 * smooth(rad + soft, rad - soft, d));
         const i = (r * LAYOUT_N + c) * 4 + ch;
         if (v > layout[i]) layout[i] = v;
       }
   }
   const ll = (x) => (x / (2 * WORLD) + 0.5) * LIGHT_N;
+  const llPx = LIGHT_N / (2 * WORLD);
   function splat(x, z, r, g, b, sigma) {
-    const px = LIGHT_N / (2 * WORLD), cx = ll(x), cz = ll(z), s = sigma * px, rr = Math.ceil(s * 2.6), k = 1 / (2 * s * s);
+    const cx = ll(x), cz = ll(z), s = Math.max(sigma * llPx, 0.8), rr = Math.ceil(s * 2.6), k = 1 / (2 * s * s);
+    if (cx < -rr || cz < -rr || cx > LIGHT_N + rr || cz > LIGHT_N + rr) return;
     for (let row = Math.max(0, Math.floor(cz - rr)); row <= Math.min(LIGHT_N - 1, Math.ceil(cz + rr)); row++)
       for (let col = Math.max(0, Math.floor(cx - rr)); col <= Math.min(LIGHT_N - 1, Math.ceil(cx + rr)); col++) {
         const dx = col + 0.5 - cx, dz = row + 0.5 - cz, w = Math.exp(-(dx * dx + dz * dz) * k), i = (row * LIGHT_N + col) * 3;
         light[i] += r * w; light[i + 1] += g * w; light[i + 2] += b * w;
       }
   }
-  function footRect(x0, z0, x1, z1) {
-    for (let r = Math.max(0, Math.floor(ll(z0))); r < Math.min(LIGHT_N, Math.ceil(ll(z1))); r++)
-      for (let c = Math.max(0, Math.floor(ll(x0))); c < Math.min(LIGHT_N, Math.ceil(ll(x1))); c++) foot[r * LIGHT_N + c] = 1;
+  // buildings darken the light bake around their feet (ambient occlusion); boxes may face any way
+  function footBox(cx, cz, ux, uz, hl, hw) {
+    const ex = Math.abs(ux) * hl + Math.abs(uz) * hw, ez = Math.abs(uz) * hl + Math.abs(ux) * hw;
+    for (let r = Math.max(0, Math.floor(ll(cz - ez))); r < Math.min(LIGHT_N, Math.ceil(ll(cz + ez))); r++)
+      for (let c = Math.max(0, Math.floor(ll(cx - ex))); c < Math.min(LIGHT_N, Math.ceil(ll(cx + ex))); c++) {
+        const x = ((c + 0.5) / LIGHT_N - 0.5) * 2 * WORLD - cx, z = ((r + 0.5) / LIGHT_N - 0.5) * 2 * WORLD - cz;
+        if (Math.abs(x * ux + z * uz) <= hl && Math.abs(-x * uz + z * ux) <= hw) foot[r * LIGHT_N + c] = 1;
+      }
   }
+  const footAt = (x, z) => {
+    const c = Math.floor(ll(x)), r = Math.floor(ll(z));
+    return c < 0 || r < 0 || c >= LIGHT_N || r >= LIGHT_N ? 0 : foot[r * LIGHT_N + c];
+  };
+  const layAt = (x, z, ch) => {
+    const c = Math.floor(lx(x)), r = Math.floor(lx(z));
+    return c < 0 || r < 0 || c >= LAYOUT_N || r >= LAYOUT_N ? 0 : layout[(r * LAYOUT_N + c) * 4 + ch];
+  };
 
   // ---------- small helpers that place things ----------
   const sprite = (x, y, z, col, inten, size, anim = 0, dir = 0, phase = 0, q = [0, 0, 0, 0]) =>
     G.sprite.push([1, 0, 0, x, 0, 1, 0, y, 0, 0, 1, z], [col[0], col[1], col[2], inten], [size, anim, dir, phase], q);
   const basic = (list, m, col, anim = 0, q, phase = 0) => list.push(m, [col[0], col[1], col[2], 0], [MAT.basic, anim, seedN++, phase], q);
   const emissive = (list, m, col, inten, anim = 0, q, phase = 0) => list.push(m, [col[0], col[1], col[2], inten], [MAT.emissive, anim, seedN++, phase], q);
-  const collider = (x0, y0, z0, x1, y1, z1) => boxes.push(x0, y0, z0, x1, y1, z1);
+  // a box that faces direction ang (the direction of its long side in the x-z plane), for the fly-through collision
+  const collider = (cx, y0, cz, hl, hw, y1, ang) => {
+    const c = Math.cos(ang), s = Math.sin(ang);
+    boxes.push(-hl, y0, -hw, hl, y1, hw, cx, cz, c, s);
+  };
   const LAMP = [1.0, 0.72, 0.44];
   const NEON = [[0.2, 0.9, 1.0], [1.0, 0.2, 0.75], [1.0, 0.55, 0.15], [0.5, 0.35, 1.0], [0.3, 1.0, 0.5], [1.0, 0.15, 0.2], [1.0, 0.9, 0.4]];
 
   function streetLamp(x, z, ox, oz, h = 7) {
     // pole at (x, z); the head reaches out over the road along (ox, oz)
     basic(G.cyl, TM.box(x, h / 2, z, 0.22, h, 0.22), [0.06, 0.06, 0.07]);
-    basic(G.cube, TM.box(x + ox * 0.7, h - 0.05, z + oz * 0.7, Math.abs(ox) * 1.4 + 0.12, 0.1, Math.abs(oz) * 1.4 + 0.12), [0.06, 0.06, 0.07]);
     const hx = x + ox * 1.4, hz = z + oz * 1.4;
+    basic(G.cube, TM.seg(x, h - 0.05, z, hx, h - 0.1, hz, 0.12), [0.06, 0.06, 0.07]);
     emissive(G.cube, TM.box(hx, h - 0.15, hz, 0.7, 0.14, 0.4), LAMP, 2.5);
     sprite(hx, h - 0.3, hz, LAMP, 5, 0.75);
     splat(hx, hz, 0.95, 0.68, 0.42, 6.5);
@@ -130,414 +166,448 @@ async function buildWorld(Q, progress) {
     }
   }
 
-  // ---------- 1. street grid ----------
-  await tick(0.05, 'Laying out streets');
-  const line = (pos, avenue) => ({ pos, avenue, w: avenue ? 20 : 12, lanes: avenue ? 2 : 1 });
-  const vx = []; // roads running along z (constant x)
-  for (let x = -WORLD, i = 0; x <= WORLD + 1; i++) { vx.push(line(Math.min(x, WORLD), i % 4 === 0 || x >= WORLD)); x += R(72, 120) + (i % 4 === 3 ? 12 : 0); }
-  vx[vx.length - 1].pos = WORLD; vx[vx.length - 1].avenue = true; vx[vx.length - 1].w = 20; vx[vx.length - 1].lanes = 2;
-  const hz = []; // roads running along x (constant z); none may cross the river
-  for (let z = 20, i = 0; z > -WORLD; i++) { hz.push(line(z, i % 4 === 0)); z -= R(72, 120); }
-  hz.push(line(-WORLD, true));
-  for (let z = 280, i = 0; z < WORLD; i++) { hz.push(line(z, i % 4 === 0)); z += R(72, 120); }
-  hz.push(line(WORLD, true));
-  hz.sort((a, b) => a.pos - b.pos);
-  const nearest = (arr, v, avenueOnly) => arr.filter((l) => !avenueOnly || l.avenue).reduce((a, b) => (Math.abs(b.pos - v) < Math.abs(a.pos - v) ? b : a));
+  // ---------- 1. read the map ----------
+  await tick(0.03, 'Reading the map of Craiova');
+  const names = city.names;
+  const roads = [];
+  readLines(city.r, 4, ([cls, fl, nm, ln], pts) => { if (pts.length > 1) roads.push({ cls, ow: fl & 1, ped: (fl >> 2) & 1, nm, ln, pts, id: roads.length }); });
+  const foots = [];
+  readLines(city.f, 1, ([t], pts) => foots.push(pts));
+  const rails = [];
+  readLines(city.l, 1, ([t], pts) => rails.push({ tram: t === 1, pts }));
+  const areas = [];
+  readLines(city.a, 1, ([t], pts) => areas.push({ type: t, pts }));
 
-  // asphalt strips, intersections and bridges
-  for (const h of hz) G.cube.push(TM.box(0, ROADY - 0.15, h.pos, 2 * WORLD + 20, 0.3, h.w), [0, 0, 0, 0], [MAT.road, 0, 0, 0], [0, h.w, h.lanes, 0]);
-  const suspension = nearest(vx, 150, true);
-  for (const v of vx) {
-    // only the avenues cross the river; the other streets end at the riverside drives
-    const zA = v.avenue ? riverZ(v.pos) - RIVER.hw - RIVER.ramp : 20, zB = v.avenue ? riverZ(v.pos) + RIVER.hw + RIVER.ramp : 280;
-    for (const [a, b] of [[-WORLD - 10, zA], [zB, WORLD + 10]])
-      G.cube.push(TM.box(v.pos, ROADY - 0.15, (a + b) / 2, v.w, 0.3, b - a), [0, 0, 0, 0], [MAT.road, 0, 0, 0], [1, v.w, v.lanes, 0]);
-    for (const h of hz) G.cube.push(TM.box(v.pos, ROADY - 0.12, h.pos, v.w, 0.3, h.w), [0, 0, 0, 0], [MAT.road, 0, 0, 0], [0, v.w, h.w, 1]);
-    if (v.avenue) buildBridge(v, zA, zB, v === suspension);
-  }
-
-  function buildBridge(v, zA, zB, grand) {
-    const x = v.pos, W = v.w + 2.4, n = Math.ceil((zB - zA) / 5);
-    for (let k = 0; k < n; k++) {
-      const z0 = zA + ((zB - zA) * k) / n, z1 = zA + ((zB - zA) * (k + 1)) / n;
-      const y0 = bridgeH(x, z0), y1 = bridgeH(x, z1), len = Math.hypot(z1 - z0, y1 - y0), sn = (y1 - y0) / len, cs = (z1 - z0) / len;
-      const cy = ROADY + (y0 + y1) / 2 - 0.6, cz = (z0 + z1) / 2;
-      G.cube.push(TM.pitch(x, cy, cz, W, 1.2, len + 0.25, sn, cs), [0, 0, 0, 0], [MAT.road, 0, 0, 0], [1, v.w, v.lanes, 0]);
-      for (const s of [-1, 1]) basic(G.cube, TM.pitch(x + s * (W / 2 - 0.15), cy + 1.1, cz, 0.3, 1.0, len + 0.25, sn, cs), [0.13, 0.13, 0.15]);
-    }
-    // piers in the water
-    const rz = riverZ(x);
-    for (let z = rz - RIVER.hw + 14; z < rz + RIVER.hw - 10; z += grand ? 200 : 30)
-      basic(G.cyl, TM.box(x, (ROADY + RIVER.h - 1.2 - 3) / 2, z, 3.2, ROADY + RIVER.h - 1.2 + 3, 5), [0.1, 0.1, 0.1]);
-    // lamps along the railings
-    for (let z = zA + 20; z < zB - 10; z += 26)
-      for (const s of [-1, 1]) {
-        const lxp = x + s * (W / 2 - 0.2), y = ROADY + bridgeH(x, z);
-        basic(G.cyl, TM.box(lxp, y + 2.6, z, 0.16, 5.2, 0.16), [0.08, 0.08, 0.09]);
-        sprite(lxp - s * 0.4, y + 5.1, z, grand ? [0.75, 0.85, 1.0] : LAMP, 4, 0.6);
-        emissive(G.sphere, TM.box(lxp - s * 0.2, y + 5.1, z, 0.5, 0.5, 0.5), grand ? [0.75, 0.85, 1.0] : LAMP, 2);
-      }
-    if (!grand) return;
-    // the suspension bridge: two towers, main cables strung with lights, suspenders down to the deck
-    const deckY = ROADY + RIVER.h, top = 58, zt = [rz - RIVER.hw + 10, rz + RIVER.hw - 10];
-    const legX = [x - W / 2 - 1.3, x + W / 2 + 1.3];
-    for (const z of zt) {
-      for (const lxp of legX) basic(G.cube, TM.box(lxp, (top - 3) / 2, z, 2.4, top + 3, 3.4), [0.2, 0.19, 0.2]);
-      for (const y of [deckY + 10, 40, top - 1]) basic(G.cube, TM.box(x, y, z, W + 5, 2.2, 2.6), [0.2, 0.19, 0.2]);
-      for (const lxp of legX) sprite(lxp, top + 0.8, z, [1, 0.1, 0.05], 6, 0.9, ANIM.blink, 0, rng());
-      for (const lxp of legX) for (let y = 4; y < top; y += 6) sprite(lxp - Math.sign(lxp - x) * 1.3, y, z, [0.7, 0.8, 1], 1.6, 0.5);
-    }
-    const cablePts = (s) => {
-      const pts = [], xx = legX[s];
-      const anchorA = zA + 8, anchorB = zB - 8;
-      const zm = (zt[0] + zt[1]) / 2, half = (zt[1] - zt[0]) / 2, low = deckY + 2.5;
-      for (let z = anchorA; z <= zt[0] + 0.01; z += (zt[0] - anchorA) / 10) pts.push([xx, lerp(ROADY + bridgeH(x, anchorA) + 1, top, (z - anchorA) / (zt[0] - anchorA)), z]);
-      for (let k = 1; k <= 30; k++) { const z = zt[0] + (2 * half * k) / 30, t = (z - zm) / half; pts.push([xx, low + (top - low) * t * t, z]); }
-      for (let k = 1; k <= 10; k++) { const z = zt[1] + ((anchorB - zt[1]) * k) / 10; pts.push([xx, lerp(top, ROADY + bridgeH(x, anchorB) + 1, (z - zt[1]) / (anchorB - zt[1])), z]); }
-      return pts;
-    };
-    for (let s = 0; s < 2; s++) {
-      const pts = cablePts(s);
-      for (let k = 0; k + 1 < pts.length; k++) {
-        const [a, b] = [pts[k], pts[k + 1]];
-        basic(G.cube, TM.seg(a[0], a[1], a[2], b[0], b[1], b[2], 0.55), [0.3, 0.3, 0.33]);
-        sprite(a[0], a[1] + 0.5, a[2], [0.8, 0.88, 1.0], 3.2, 0.45);
-        if (a[2] > zt[0] + 1 && a[2] < zt[1] - 1) basic(G.cube, TM.seg(a[0], deckY + 0.8, a[2], a[0], a[1], a[2], 0.12), [0.3, 0.3, 0.33]);
+  // ---------- 2. ground: fields, industry, parks, lakes ----------
+  await tick(0.08, 'Painting the ground');
+  const GROUND = { [AREA.farm]: 5, [AREA.industrial]: 3, [AREA.park]: 2, [AREA.wood]: 2, [AREA.grave]: 8, [AREA.pitch]: 2, [AREA.paved]: 6 };
+  for (const t of [AREA.farm, AREA.industrial, AREA.park, AREA.wood, AREA.grave, AREA.pitch, AREA.paved])
+    for (const a of areas) if (a.type === t) layPoly(a.pts, GROUND[t]);
+  // lakes: a soft-edged mask in the alpha channel
+  {
+    const mask = new Uint8Array(LAYOUT_N * LAYOUT_N);
+    let rMin = LAYOUT_N, rMax = 0;
+    const saved = new Uint8Array(0);
+    for (const a of areas) {
+      if (a.type !== AREA.water) continue;
+      // fill into a separate mask by borrowing layPoly on a scratch copy of the red channel
+      let z0 = 1e9, z1 = -1e9;
+      for (const p of a.pts) { z0 = Math.min(z0, p[1]); z1 = Math.max(z1, p[1]); }
+      const r0 = Math.max(0, Math.floor(lx(z0)) - 1), r1 = Math.min(LAYOUT_N - 1, Math.ceil(lx(z1)) + 1);
+      rMin = Math.min(rMin, r0); rMax = Math.max(rMax, r1);
+      const xs = [];
+      for (let r = r0; r <= r1; r++) {
+        const z = ((r + 0.5) / LAYOUT_N - 0.5) * 2 * WORLD;
+        xs.length = 0;
+        for (let i = 0, n = a.pts.length; i < n; i++) {
+          const p = a.pts[i], q = a.pts[(i + 1) % n];
+          if ((p[1] <= z) !== (q[1] <= z)) xs.push(p[0] + ((z - p[1]) / (q[1] - p[1])) * (q[0] - p[0]));
+        }
+        xs.sort((p, q) => p - q);
+        for (let k = 0; k + 1 < xs.length; k += 2)
+          for (let c = Math.max(0, Math.round(lx(xs[k]))); c < Math.min(LAYOUT_N, Math.round(lx(xs[k + 1]))); c++) mask[r * LAYOUT_N + c] = 255;
       }
     }
+    for (let r = Math.max(1, rMin); r <= Math.min(LAYOUT_N - 2, rMax); r++)
+      for (let c = 1; c < LAYOUT_N - 1; c++) {
+        const i = r * LAYOUT_N + c;
+        if (!mask[i] && !mask[i - 1] && !mask[i + 1] && !mask[i - LAYOUT_N] && !mask[i + LAYOUT_N]) continue;
+        let s = 0;
+        for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) s += mask[i + dr * LAYOUT_N + dc];
+        layout[i * 4 + 3] = Math.round(s / 9);
+      }
   }
 
-  // ---------- 2. blocks ----------
-  await tick(0.15, 'Raising towers');
-  const PARK = { x0: -820, z0: -1060, x1: -380, z1: -640 };
-  const blocks = [];
-  for (let i = 0; i + 1 < vx.length; i++)
-    for (let j = 0; j + 1 < hz.length; j++) {
-      const b = { x0: vx[i].pos + vx[i].w / 2, x1: vx[i + 1].pos - vx[i + 1].w / 2, z0: hz[j].pos + hz[j].w / 2, z1: hz[j + 1].pos - hz[j + 1].w / 2 };
-      b.cx = (b.x0 + b.x1) / 2; b.cz = (b.z0 + b.z1) / 2;
-      b.kind = hz[j].pos === 20 && hz[j + 1].pos === 280 ? 'river'
-        : b.cx > PARK.x0 && b.cx < PARK.x1 && b.cz > PARK.z0 && b.cz < PARK.z1 ? 'park' : 'city';
-      blocks.push(b);
-    }
-  const SW = 3.6; // sidewalk width
-  const sidewalk = (x0, z0, x1, z1) => G.cube.push(TM.box((x0 + x1) / 2, 0.09, (z0 + z1) / 2, x1 - x0, 0.18, z1 - z0), [0, 0, 0, 0], [MAT.sidewalk, 0, 0, 0]);
-  const nightlife = (x, z) => vnoise(x * 0.004 + 3.1, z * 0.004 - 1.7) * 0.8 + 0.5 * Math.exp(-((x - 150) ** 2 + (z + 380) ** 2) / 500 ** 2);
-
-  const tallest = [];
+  // ---------- 3. buildings ----------
+  await tick(0.15, 'Raising the buildings');
+  const WALLS = {
+    house: [[0.46, 0.42, 0.34], [0.42, 0.3, 0.22], [0.38, 0.4, 0.36], [0.5, 0.5, 0.5], [0.45, 0.3, 0.3], [0.5, 0.45, 0.28]],
+    bloc: [[0.55, 0.5, 0.42], [0.5, 0.4, 0.35], [0.42, 0.5, 0.52], [0.58, 0.58, 0.56], [0.52, 0.52, 0.5], [0.5, 0.36, 0.3]],
+  };
+  const stadiumBoxes = city.s.filter((s) => s[2] > 90 && s[3] > 70);
+  const inStadium = (x, z) => stadiumBoxes.some(([sx, sz, L, W, a]) => {
+    const dx = x - sx, dz = z - sz, c = Math.cos(a), s = Math.sin(a);
+    return Math.abs(dx * c + dz * s) < L / 2 && Math.abs(-dx * s + dz * c) < W / 2;
+  });
+  const B = city.b;
   let buildingCount = 0;
-  for (const b of blocks) {
-    if (b.kind !== 'city') continue;
-    sidewalk(b.x0, b.z0, b.x1, b.z1);
-    const H0 = skylineAt(b.cx, b.cz), nl = nightlife(b.cx, b.cz);
-    const ix0 = b.x0 + SW, ix1 = b.x1 - SW, iz0 = b.z0 + SW, iz1 = b.z1 - SW;
-    // street lamps and street trees around the block
-    if (H0 < 70 && rd() < 0.75) {
-      const step = 13;
-      for (let x = b.x0 + 6; x < b.x1 - 5; x += step) for (const z of [b.z0 + 1.6, b.z1 - 1.6]) if (rd() < 0.8 * Q.trees) tree(x + Rd(-1, 1), z, Rd(0.8, 1.1));
-      for (let z = b.z0 + 6; z < b.z1 - 5; z += step) for (const x of [b.x0 + 1.6, b.x1 - 1.6]) if (rd() < 0.8 * Q.trees) tree(x, z + Rd(-1, 1), Rd(0.8, 1.1));
+  const tallest = [];
+  for (let i = 0; i < B.length; i += 8) {
+    const x = B[i] / 4, z = B[i + 1] / 4, len = B[i + 2] / 2, wid = B[i + 3] / 2, ang = (B[i + 4] / 255) * Math.PI, h = B[i + 5] / 2;
+    const kind = B[i + 6] & 7, roof = (B[i + 6] >> 3) & 1, shopRaw = B[i + 6] >> 4;
+    if (inStadium(x, z)) continue;
+    buildingCount++;
+    const seed = 7919 + 13 * buildingCount;
+    const u = [Math.cos(ang), Math.sin(ang)], v = [-Math.sin(ang), Math.cos(ang)], yaw = -ang;
+    let style = 0, wall, refl = 0.3, fh = 3, cw = 3, wx = 0.55;
+    switch (kind) {
+      case KIND.house: wall = pickWall(WALLS.house); fh = R(2.8, 3.2); cw = R(2.2, 3.2); break;
+      case KIND.bloc: style = 4; wall = pickWall(WALLS.bloc); refl = 0.4; fh = 2.9; cw = R(3.0, 3.6); wx = 0.62; break;
+      case KIND.commercial: style = rng() < 0.3 ? 1 : 3; wall = style === 1 ? [R(0.02, 0.05), R(0.04, 0.07), R(0.06, 0.1)] : rng() < 0.5 ? [0.5, 0.5, 0.5] : [0.08, 0.08, 0.09]; refl = style === 1 ? 0.85 : 0.65; fh = R(3.4, 3.9); cw = R(3, 4.2); wx = style === 1 ? 0.92 : 1.0; break;
+      case KIND.industrial: wall = [R(0.22, 0.34), R(0.22, 0.34), R(0.22, 0.32)]; fh = R(5, 6); cw = R(5, 7); wx = 0.28; break;
+      case KIND.civic: wall = [R(0.46, 0.56), R(0.42, 0.5), R(0.36, 0.44)]; fh = R(3.8, 4.4); cw = R(3.4, 4.2); wx = 0.5; break;
+      default: wall = [R(0.5, 0.58), R(0.48, 0.54), R(0.44, 0.5)]; fh = R(4.5, 5.5); cw = R(3.6, 4.4); wx = 0.3;
     }
-    if (rng() < 0.035 && H0 < 200) { plaza(ix0, iz0, ix1, iz1); continue; }
-    const maxLot = H0 > 170 ? 70 : H0 > 70 ? 40 : 26 + R(0, 10);
-    const lots = [];
-    splitLots(ix0, iz0, ix1, iz1, maxLot, 0, 15, lots);
-    for (const lot of lots) {
-      const w = lot.x1 - lot.x0, d = lot.z1 - lot.z0;
-      if (w < 7 || d < 7) continue;
-      if (rng() < 0.05) { if (rd() < Q.trees) tree((lot.x0 + lot.x1) / 2, (lot.z0 + lot.z1) / 2, Rd(0.9, 1.3)); continue; }
-      let H = H0 * (0.3 + 0.95 * Math.pow(rng(), 1.3));
-      if (H0 > 120 && rng() < 0.06) H *= 1.4;
-      H = Math.max(Math.min(H, Math.max(w, d) * 7.5), R(7, 13));
-      const g = H0 > 60 ? R(1.5, 4) : rng() < 0.5 ? 0 : R(1, 2.5);
-      const bld = building(lot.x0 + g / 2, lot.z0 + g / 2, lot.x1 - g / 2, lot.z1 - g / 2, H, lot.sides, nl, H0);
-      if (bld) tallest.push(bld);
+    function pickWall(list) { const c = list[Math.floor(rng() * list.length)]; return [c[0] * R(0.9, 1.1), c[1] * R(0.9, 1.1), c[2] * R(0.9, 1.1)]; }
+    // the gable roof of a house sits on top of the walls
+    const ridge = roof ? Math.min(wid * 0.34, 3.4) : 0;
+    let H = Math.max(fh, Math.round((h - ridge) / fh) * fh);
+    const shop = kind === KIND.industrial || kind === KIND.house ? 0 : clamp(shopRaw / 15 * 1.1 + R(-0.1, 0.1), 0, 1);
+    G.cube.push(TM.yaw(x, H / 2, z, len, H, wid, yaw), [...wall, refl], [MAT.building, 0, seed, shop], [style, fh, cw, wx]);
+    collider(x, 0, z, len / 2, wid / 2, H + ridge, ang);
+    footBox(x, z, u[0], u[1], len / 2, wid / 2);
+    const top = H + ridge;
+    if (roof) {
+      const tile = pickd([[0.3, 0.1, 0.06], [0.26, 0.09, 0.06], [0.2, 0.12, 0.09], [0.14, 0.14, 0.15]]);
+      basic(G.prism, TM.yaw(x, H + ridge / 2, z, len + 0.7, ridge, wid + 0.8, yaw), tile);
     }
-  }
-
-  function splitLots(x0, z0, x1, z1, maxLot, depth, sides, out) {
-    const w = x1 - x0, d = z1 - z0;
-    if ((w <= maxLot && d <= maxLot) || depth > 5) { out.push({ x0, z0, x1, z1, sides }); return; }
-    if (w >= d) {
-      const s = x0 + w * R(0.35, 0.65);
-      splitLots(x0, z0, s, z1, maxLot, depth + 1, sides & ~2, out); splitLots(s, z0, x1, z1, maxLot, depth + 1, sides & ~1, out);
-    } else {
-      const s = z0 + d * R(0.35, 0.65);
-      splitLots(x0, z0, x1, s, maxLot, depth + 1, sides & ~8, out); splitLots(x0, s, x1, z1, maxLot, depth + 1, sides & ~4, out);
-    }
-  }
-
-  function plaza(x0, z0, x1, z1) {
-    const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
-    basic(G.cyl, TM.box(cx, 0.45, cz, 12, 0.6, 12), [0.16, 0.15, 0.14]);
-    emissive(G.cyl, TM.box(cx, 0.6, cz, 11, 0.5, 11), [0.25, 0.55, 0.8], 0.6);
-    emissive(G.cyl, TM.box(cx, 2.2, cz, 0.8, 3.6, 0.8), [0.6, 0.85, 1.0], 1.5);
-    sprite(cx, 4.2, cz, [0.6, 0.85, 1.0], 6, 1.6);
-    splat(cx, cz, 0.3, 0.55, 0.8, 9);
-    for (let k = 0; k < 8; k++) { const a = (k / 8) * Math.PI * 2; tree(cx + Math.cos(a) * 16, cz + Math.sin(a) * 16, 0.9); }
-    for (const [x, z] of [[x0 + 3, z0 + 3], [x1 - 3, z0 + 3], [x0 + 3, z1 - 3], [x1 - 3, z1 - 3]]) streetLamp(x, z, 0, 0, 5);
-  }
-
-  function building(x0, z0, x1, z1, H, sides, nl, H0) {
-    const seed = 7919 + 13 * buildingCount++;
-    const style = H > 90 ? pick([1, 1, 3, 4, 0]) : H > 35 ? pick([0, 1, 3, 4, 0, 2]) : pick([0, 2, 2, 0, 3]);
-    const WALL = [
-      () => { const g = R(0.25, 0.5); return [g, g * R(0.92, 1), g * R(0.82, 0.95)]; },
-      () => [R(0.02, 0.05), R(0.04, 0.07), R(0.06, 0.1)],
-      () => [R(0.3, 0.45), R(0.12, 0.2), R(0.07, 0.12)],
-      () => (rng() < 0.5 ? [0.55, 0.55, 0.56] : [0.06, 0.06, 0.07]),
-      () => [R(0.5, 0.65), R(0.48, 0.6), R(0.42, 0.52)],
-    ];
-    const wall = WALL[style]();
-    const refl = [0.3, 0.85, 0.2, 0.65, 0.4][style];
-    const fh = style === 0 || style === 2 ? R(3.0, 3.4) : R(3.7, 4.2);
-    const cw = style === 2 ? R(2.3, 2.9) : style === 1 ? R(1.6, 2.8) : R(2.6, 4.2);
-    const wx = Math.min(1, [0.55, 0.92, 0.45, 1.0, 0.62][style] * R(0.9, 1.08));
-    const shop = clamp(nl * 0.9 + (H0 > 100 ? 0.3 : 0) + R(-0.2, 0.2), 0.05, 1);
-    H = Math.max(fh * 2, Math.round(H / fh) * fh);
-    const tiers = [];
-    if (H > 70 && rng() < 0.75) {
-      const fr = H > 180 ? [0.45, 0.3, 0.25] : [0.6, 0.4];
-      let yb = 0, f = [x0, z0, x1, z1];
-      for (let k = 0; k < fr.length; k++) {
-        const yt = k === fr.length - 1 ? H : Math.round((yb + H * fr[k] * R(0.85, 1.15)) / fh) * fh;
-        tiers.push([...f, yb, yt]);
-        const sx = (f[2] - f[0]) * R(0.06, 0.16), sz = (f[3] - f[1]) * R(0.06, 0.16), ax = R(0.3, 1.7), az = R(0.3, 1.7);
-        const n = [f[0] + sx * ax, f[1] + sz * az, f[2] - sx * (2 - ax), f[3] - sz * (2 - az)];
-        if (n[2] - n[0] < 9 || n[3] - n[1] < 9) { tiers[tiers.length - 1][5] = H; break; }
-        f = n; yb = yt;
-      }
-    } else tiers.push([x0, z0, x1, z1, 0, H]);
-    tiers.forEach(([a, b, c, d, yb, yt], k) => {
-      G.cube.push(TM.box((a + c) / 2, (yb + yt) / 2, (b + d) / 2, c - a, yt - yb, d - b), [...wall, refl], [MAT.building, 0, seed, k === 0 ? shop : 0], [style, fh, cw, wx]);
-      collider(a, yb, b, c, yt, d);
-    });
-    footRect(x0, z0, x1, z1);
     // light spilling out of shop windows onto the pavement
     if (shop > 0.3) {
-      const spill = (x, z) => splat(x, z, 0.5 * shop, 0.36 * shop, 0.22 * shop, 3.5);
-      if (sides & 4) for (let x = x0 + 3; x < x1 - 2; x += 7) spill(x, z0 - 2);
-      if (sides & 8) for (let x = x0 + 3; x < x1 - 2; x += 7) spill(x, z1 + 2);
-      if (sides & 1) for (let z = z0 + 3; z < z1 - 2; z += 7) spill(x0 - 2, z);
-      if (sides & 2) for (let z = z0 + 3; z < z1 - 2; z += 7) spill(x1 + 2, z);
+      for (let t = -len / 2 + 3; t < len / 2 - 2; t += 7)
+        for (const s of [-1, 1]) {
+          const d = wid / 2 + 2;
+          splat(x + u[0] * t + v[0] * s * d, z + u[1] * t + v[1] * s * d, 0.5 * shop, 0.36 * shop, 0.22 * shop, 3.5);
+        }
     }
-    const [tx0, tz0, tx1, tz1, , top] = tiers[tiers.length - 1];
-    const tcx = (tx0 + tx1) / 2, tcz = (tz0 + tz1) / 2, tw = tx1 - tx0, td = tz1 - tz0;
-    // rooftops: LED crowns, corner strips, spires, warning lights, water tanks, machinery, billboards
-    if (H > 140 && rd() < 0.6) {
-      const c = pickd(NEON.slice(0, 4).concat([[0.9, 0.95, 1.0]])), it = Rd(3, 6);
-      for (const s of [-1, 1]) {
-        emissive(G.cube, TM.box(tcx, top - 0.4, tcz + s * td / 2, tw + 0.3, 0.5, 0.3), c, it);
-        emissive(G.cube, TM.box(tcx + s * tw / 2, top - 0.4, tcz, 0.3, 0.5, td + 0.3), c, it);
-      }
-      if (rd() < 0.5) {
-        const [, , , , yb] = tiers[tiers.length - 1];
-        for (const [cx, cz] of [[tx0, tz0], [tx1, tz0], [tx0, tz1], [tx1, tz1]]) emissive(G.cube, TM.box(cx, (yb + top) / 2, cz, 0.35, top - yb, 0.35), c, it * 0.6);
+    if (kind === KIND.industrial && len * wid > 700) {
+      // floodlit yards: a white-orange light on every corner
+      for (const [a, b] of [[-1, -1], [1, 1], [-1, 1], [1, -1]]) {
+        const px = x + u[0] * a * (len / 2 + 1) + v[0] * b * (wid / 2 + 1), pz = z + u[1] * a * (len / 2 + 1) + v[1] * b * (wid / 2 + 1);
+        sprite(px, Math.min(H, 9), pz, [1, 0.85, 0.65], 4.5, 0.8);
+        splat(px, pz, 0.8, 0.62, 0.4, 7);
       }
     }
-    if (H > 200 && rd() < 0.75) {
-      const sh = Rd(25, 70);
-      basic(G.cyl, TM.box(tcx, top + sh / 2, tcz, 1.4, sh, 1.4), [0.3, 0.3, 0.32]);
-      sprite(tcx, top + sh + 0.6, tcz, [1, 0.08, 0.04], 8, 1.2, ANIM.blink, 0, rd());
+    if (kind === KIND.church) {
+      const r = Math.min(wid * 0.3, 4.5);
+      basic(G.cyl, TM.box(x, top + r * 0.5, z, r * 1.5, r, r * 1.5), [0.34, 0.33, 0.3]);
+      basic(G.sphere, TM.box(x, top + r * 1.1, z, r * 1.6, r * 1.6, r * 1.6), [0.1, 0.2, 0.18]);
+      basic(G.cone, TM.box(x, top + r * 2.6, z, r * 0.5, r * 1.8, r * 0.5), [0.1, 0.2, 0.18]);
+      sprite(x, top + r * 3.6, z, [1, 0.8, 0.5], 5, 0.7);
+      splat(x, z, 0.5, 0.4, 0.25, 12);
     }
-    if (H > 90) for (const [cx, cz] of [[tx0 + 0.5, tz0 + 0.5], [tx1 - 0.5, tz1 - 0.5]]) sprite(cx, top + 0.6, cz, [1, 0.08, 0.04], 5, 0.8, ANIM.blink, 0, rd());
-    if (H > 12 && H < 95 && rd() < 0.35 * Q.details) {
-      const x = Rd(tx0 + 3, tx1 - 3), z = Rd(tz0 + 3, tz1 - 3), r = Rd(3.5, 5);
-      basic(G.cyl, TM.box(x, top + 3.2, z, r, 4.2, r), [0.22, 0.14, 0.09]);
-      basic(G.cone, TM.box(x, top + 6.0, z, r * 1.05, 1.4, r * 1.05), [0.18, 0.12, 0.08]);
-      for (const [a, b] of [[-1, -1], [1, 1], [-1, 1], [1, -1]]) basic(G.cube, TM.box(x + a * r * 0.3, top + 0.6, z + b * r * 0.3, 0.25, 1.2, 0.25), [0.1, 0.1, 0.1]);
+    if (top > 55) {
+      for (const [a, b] of [[-1, -1], [1, 1]]) sprite(x + u[0] * a * len * 0.4 + v[0] * b * wid * 0.4, top + 0.6, z + u[1] * a * len * 0.4 + v[1] * b * wid * 0.4, [1, 0.08, 0.04], 5, 0.8, ANIM.blink, 0, rd());
     }
-    if (rd() < 0.6 * Q.details) {
-      for (let k = 0, n = 1 + Math.floor(rd() * 3); k < n; k++) {
-        const sx = Rd(2, Math.min(6, tw * 0.3)), sz = Rd(2, Math.min(6, td * 0.3)), sy = Rd(1.2, 2.6);
-        basic(G.cube, TM.box(Rd(tx0 + sx, tx1 - sx), top + sy / 2, Rd(tz0 + sz, tz1 - sz), sx, sy, sz), [0.16, 0.16, 0.17]);
+    // rooftops: water tanks, machinery, aerials, billboards, blade signs
+    if (!roof && kind !== KIND.house) {
+      if (top > 12 && top < 60 && rd() < 0.3 * Q.details) {
+        const px = x + u[0] * Rd(-len * 0.3, len * 0.3), pz = z + u[1] * Rd(-len * 0.3, len * 0.3), r = Rd(2.5, 4);
+        basic(G.cyl, TM.box(px, top + 2.4, pz, r, 3.2, r), [0.22, 0.14, 0.09]);
+        basic(G.cone, TM.box(px, top + 4.5, pz, r * 1.05, 1.2, r * 1.05), [0.18, 0.12, 0.08]);
+      }
+      if (rd() < 0.5 * Q.details) {
+        const sx = Rd(1.5, Math.min(5, len * 0.25)), sz = Rd(1.5, Math.min(5, wid * 0.25)), sy = Rd(1.2, 2.4);
+        basic(G.cube, TM.yaw(x + u[0] * Rd(-len * 0.3, len * 0.3), top + sy / 2, z + u[1] * Rd(-len * 0.3, len * 0.3), sx, sy, sz, yaw), [0.16, 0.16, 0.17]);
+      }
+      if (top > 20 && top < 70 && rd() < 0.12 * Q.details) {
+        const ah = Rd(8, 18), px = x + u[0] * Rd(-len * 0.3, len * 0.3), pz = z + u[1] * Rd(-len * 0.3, len * 0.3);
+        basic(G.cyl, TM.box(px, top + ah / 2, pz, 0.3, ah, 0.3), [0.25, 0.25, 0.27]);
+        sprite(px, top + ah, pz, [1, 0.1, 0.05], 3, 0.5, ANIM.blink, 0, rd());
+      }
+      if (shop > 0.55 && top < 40 && rd() < 0.14 * Q.details && len > 14) {
+        const c = pickd(NEON), bw = Math.min(14, len * 0.7), bh = Rd(4, 7), s = rd() < 0.5 ? -1 : 1;
+        G.cube.push(TM.yaw(x + v[0] * s * (wid / 2 - 1), top + 2 + bh / 2, z + v[1] * s * (wid / 2 - 1), bw, bh, 0.4, yaw), [...c, Rd(2, 3.5)], [MAT.neon, 0, seedN++, 1]);
+        basic(G.cube, TM.box(x + v[0] * s * (wid / 2 - 1), top + 1, z + v[1] * s * (wid / 2 - 1), 0.3, 2, 0.3), [0.1, 0.1, 0.1]);
       }
     }
-    if (H > 25 && H < 120 && rd() < 0.1 * Q.details) {
-      const ah = Rd(8, 20), x = Rd(tx0 + 2, tx1 - 2), z = Rd(tz0 + 2, tz1 - 2);
-      basic(G.cyl, TM.box(x, top + ah / 2, z, 0.3, ah, 0.3), [0.25, 0.25, 0.27]);
-      sprite(x, top + ah, z, [1, 0.1, 0.05], 3, 0.5, ANIM.blink, 0, rd());
+    if (shop > 0.45 && h > 7 && h < 80 && rd() < 0.55 * Q.details && len > 8) {
+      const c = pickd(NEON), sh = Rd(4, 8), y = Rd(5.5, Math.max(5.6, Math.min(13, top - sh / 2 - 1))) + sh / 2, s = rd() < 0.5 ? -1 : 1, t = Rd(-len / 2 + 2, len / 2 - 2);
+      if (y + sh / 2 < top) {
+        const sx = x + u[0] * t + v[0] * s * (wid / 2 + 0.9), sz = z + u[1] * t + v[1] * s * (wid / 2 + 0.9);
+        G.cube.push(TM.yaw(sx, y, sz, 1.7, sh, 0.35, yaw + (s > 0 ? -Math.PI / 2 : Math.PI / 2)), [...c, Rd(2.5, 4.5)], [MAT.neon, 0, seedN++, 0]);
+        splat(sx, sz, c[0] * 0.35, c[1] * 0.35, c[2] * 0.35, 4);
+      }
     }
-    // a billboard on the roof, facing a street
-    if (H > 12 && H < 55 && nl > 0.55 && rd() < 0.18 * Q.details && sides) {
-      const c = pickd(NEON), bw = Math.min(16, Math.max(tw, td) * 0.7), bh = Rd(5, 8);
-      let m;
-      if (sides & 4) m = TM.yaw(tcx, top + 2 + bh / 2, tz0 + 1, bw, bh, 0.4, 0);
-      else if (sides & 8) m = TM.yaw(tcx, top + 2 + bh / 2, tz1 - 1, bw, bh, 0.4, 0);
-      else if (sides & 1) m = TM.yaw(tx0 + 1, top + 2 + bh / 2, tcz, bw, bh, 0.4, Math.PI / 2);
-      else m = TM.yaw(tx1 - 1, top + 2 + bh / 2, tcz, bw, bh, 0.4, Math.PI / 2);
-      G.cube.push(m, [...c, Rd(2, 3.5)], [MAT.neon, 0, seedN++, 1]);
-      basic(G.cube, TM.box(m[3], top + 1, m[11], 0.3, 2, 0.3), [0.1, 0.1, 0.1]);
+    if (top > 30) tallest.push({ x, z, top });
+  }
+  function pointInPoly(x, z, pts) {
+    let inside = false;
+    for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+      const a = pts[i], b = pts[j];
+      if ((a[1] > z) !== (b[1] > z) && x < ((b[0] - a[0]) * (z - a[1])) / (b[1] - a[1]) + a[0]) inside = !inside;
     }
-    // blade signs sticking out over the pavement
-    if (H > 8 && H < 80 && nl > 0.45 && rd() < 0.6 * Q.details) {
-      const c = pickd(NEON), sh = Rd(4, 9), y = Rd(5.5, Math.min(14, H - sh / 2 - 1)) + sh / 2;
-      if (y + sh / 2 < H) {
-        let m;
-        if (sides & 4) m = TM.yaw(Rd(x0 + 2, x1 - 2), y, z0 - 0.9, 1.7, sh, 0.35, Math.PI / 2);
-        else if (sides & 8) m = TM.yaw(Rd(x0 + 2, x1 - 2), y, z1 + 0.9, 1.7, sh, 0.35, Math.PI / 2);
-        else if (sides & 1) m = TM.yaw(x0 - 0.9, y, Rd(z0 + 2, z1 - 2), 1.7, sh, 0.35, 0);
-        else if (sides & 2) m = TM.yaw(x1 + 0.9, y, Rd(z0 + 2, z1 - 2), 1.7, sh, 0.35, 0);
-        if (m) {
-          G.cube.push(m, [...c, Rd(2.5, 4.5)], [MAT.neon, 0, seedN++, 0]);
-          splat(m[3], m[11], c[0] * 0.35, c[1] * 0.35, c[2] * 0.35, 4);
+    return inside;
+  }
+
+  // ---------- 4. the street network ----------
+  await tick(0.35, 'Laying the streets');
+  // width, lanes and the height of each class: bigger roads sit a hair higher, so crossings never flicker
+  const WID = (r) => {
+    const tot = r.ow ? Math.max(1, r.ln) : Math.max(2, r.ln + (r.ln & 1));
+    r.tot = tot;
+    switch (r.cls) {
+      case 0: return tot * 3.5 + 1;
+      case 1: return tot * 3.4 + 1.2;
+      case 2: return tot * 3.3 + 1;
+      case 3: return Math.min(tot * 3.2 + 0.8, 9);
+      case 4: return r.ow ? 4.6 : 6.2;
+      case 5: return 3.8;
+      default: return 6;
+    }
+  };
+  const yOff = (r) => (7 - r.cls) * 0.012 + (r.id % 5) * 0.002;
+  const key = (p) => Math.round(p[0] * 2) + ',' + Math.round(p[1] * 2);
+  const junctions = new Map();
+  for (const r of roads) {
+    r.w = WID(r);
+    if (r.ped || r.cls >= 6) continue;
+    r.pts.forEach((p, i) => {
+      const k = key(p);
+      let nd = junctions.get(k);
+      if (!nd) junctions.set(k, (nd = { x: p[0], z: p[1], arms: [] }));
+      for (const q of [r.pts[i - 1], r.pts[i + 1]]) if (q) nd.arms.push({ ang: Math.atan2(q[1] - p[1], q[0] - p[0]), w: r.w, cls: r.cls, y: yOff(r) });
+    });
+  }
+  const jCell = new Map();
+  const jKey = (x, z) => Math.floor(x / 40) * 100003 + Math.floor(z / 40);
+  const nearJunction = (x, z, extra = 3) => {
+    for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
+      const l = jCell.get(jKey(x + dx * 40, z + dz * 40));
+      if (l) for (const j of l) if ((j.x - x) ** 2 + (j.z - z) ** 2 < (j.r + extra) ** 2) return true;
+    }
+    return false;
+  };
+  const signalCell = new Map();
+  for (const [sx, sz] of city.g) { const k = jKey(sx, sz); if (!signalCell.has(k)) signalCell.set(k, []); signalCell.get(k).push([sx, sz]); }
+  const signalNear = (x, z) => {
+    for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++)
+      for (const s of signalCell.get(jKey(x + dx * 40, z + dz * 40)) || []) if ((s[0] - x) ** 2 + (s[1] - z) ** 2 < 900) return true;
+    return false;
+  };
+  for (const nd of junctions.values()) {
+    if (nd.arms.length < 3) continue;
+    nd.w = Math.max(...nd.arms.map((a) => a.w));
+    nd.r = nd.w / 2 + 0.3;
+    nd.y = Math.max(...nd.arms.map((a) => a.y)) + 0.004;
+    const k = jKey(nd.x, nd.z);
+    if (!jCell.has(k)) jCell.set(k, []);
+    jCell.get(k).push(nd);
+    G.cyl.push(TM.box(nd.x, ROADY + nd.y - 0.15, nd.z, nd.r * 2, 0.3, nd.r * 2), [0, 0, 0, 0], [MAT.road, 0, 0, 0], [1, nd.w, 0, 0]);
+    // zebra crossings where the bigger streets meet
+    if (Math.min(...nd.arms.map((a) => a.cls)) <= 3 && (signalNear(nd.x, nd.z) || rd() < 0.3))
+      for (const a of nd.arms) {
+        if (a.w < 6 || a.cls > 4) continue;
+        const d = nd.r + 2.4;
+        G.cube.push(TM.yaw(nd.x + Math.cos(a.ang) * d, ROADY + a.y + 0.006 - 0.15, nd.z + Math.sin(a.ang) * d, 2.8, 0.3, a.w - 0.4, -a.ang), [0, 0, 0, 0], [MAT.road, 0, 0, 0], [2, a.w - 0.4, 0, 0]);
+      }
+  }
+
+  const named = [];                     // street names for the on-screen label
+  const runs = [];                      // straight stretches for the traffic
+  for (const r of roads) {
+    const pts = r.pts, y = ROADY + yOff(r);
+    if (r.ped) {
+      // pedestrian streets: paving, no asphalt
+      for (let i = 0; i + 1 < pts.length; i++) layLine(pts[i], pts[i + 1], r.w / 2 + 1, 6);
+      lampsAlong(pts, Q.lampStep * 0.8, 3.4, 5.5, false);
+      continue;
+    }
+    if (r.cls >= 6) continue;
+    // pavements on both sides, painted into the ground
+    if (r.cls <= 4) for (let i = 0; i + 1 < pts.length; i++) layLine(pts[i], pts[i + 1], r.w / 2 + 2.4, 6);
+    for (let i = 0; i + 1 < pts.length; i++) {
+      const [ax, az] = pts[i], [bx, bz] = pts[i + 1], L = Math.hypot(bx - ax, bz - az);
+      if (L < 0.3) continue;
+      const ang = Math.atan2(bz - az, bx - ax), e = Math.min(r.w * 0.3, 1.2);
+      G.cube.push(TM.yaw((ax + bx) / 2, y - 0.15, (az + bz) / 2, L + e * 2, 0.3, r.w, -ang), [0, 0, 0, 0], [MAT.road, 0, 0, 0], [0, r.w, r.tot, r.ow]);
+      if (r.nm && r.cls <= 4) named.push({ n: r.nm, ax, az, bx, bz, w: r.w });
+    }
+    // straight runs for the cars: stretches where every vertex stays within a metre of the line
+    for (let i = 0; i + 1 < pts.length;) {
+      let j = i + 1, len = 0;
+      while (j < pts.length) {
+        const [ax, az] = pts[i], [bx, bz] = pts[j], dx = bx - ax, dz = bz - az, l = Math.hypot(dx, dz);
+        let ok = l < 240;
+        for (let k = i + 1; ok && k < j; k++) ok = Math.abs((pts[k][0] - ax) * dz - (pts[k][1] - az) * dx) / (l || 1) < 1.0;
+        if (!ok) break;
+        len = l; j++;
+      }
+      j = Math.max(j - 1, i + 1);
+      if (len >= 26) runs.push({ ax: pts[i][0], az: pts[i][1], bx: pts[j][0], bz: pts[j][1], L: len, r });
+      i = j;
+    }
+    // street lamps and street trees along the way
+    const lampStep = Q.lampStep * [1.3, 1, 1, 0.85, 0.95, 2.2][r.cls];
+    const lampsOn = r.cls <= 4 || r.cls === 5 && false;
+    let acc = lampStep * 0.5, accT = 6, side = rd() < 0.5 ? 1 : -1;
+    for (let i = 0; i + 1 < pts.length; i++) {
+      const [ax, az] = pts[i], [bx, bz] = pts[i + 1], L = Math.hypot(bx - ax, bz - az);
+      if (L < 0.5) continue;
+      const dx = (bx - ax) / L, dz = (bz - az) / L, nx = -dz, nz = dx;
+      for (let s = 0; s < L; s += 1) {
+        acc -= 1; accT -= 1;
+        if (acc <= 0 && lampsOn) {
+          acc += lampStep;
+          const x = ax + dx * s, z = az + dz * s;
+          if (!nearJunction(x, z, 4)) {
+            const sides = r.cls <= 2 ? [1, -1] : [(side = -side)];
+            for (const sd of sides) {
+              const px = x + nx * sd * (r.w / 2 + 0.9), pz = z + nz * sd * (r.w / 2 + 0.9);
+              if (!footAt(px, pz)) streetLamp(px, pz, -nx * sd, -nz * sd, r.cls <= 2 ? 9 : 7);
+            }
+          }
+        }
+        if (accT <= 0) {
+          accT += 15;
+          const x = ax + dx * s, z = az + dz * s;
+          if (r.cls >= 1 && r.cls <= 4 && !nearJunction(x, z, 6))
+            for (const sd of [1, -1]) {
+              if (rd() > 0.5 * Q.trees) continue;
+              const px = x + nx * sd * (r.w / 2 + 3.2), pz = z + nz * sd * (r.w / 2 + 3.2);
+              if (!footAt(px, pz)) tree(px, pz, Rd(0.8, 1.1));
+            }
         }
       }
     }
-    return H > 150 ? { x: tcx, z: tcz, top, H } : null;
+  }
+  function layLine(a, b, rad, type) {
+    const L = Math.hypot(b[0] - a[0], b[1] - a[1]), n = Math.max(1, Math.ceil(L / 1.2));
+    for (let k = 0; k <= n; k++) layDiskType(lerp(a[0], b[0], k / n), lerp(a[1], b[1], k / n), rad, type);
+  }
+  // footpaths: pale tracks across the grass
+  for (const pts of foots) for (let i = 0; i + 1 < pts.length; i++) {
+    const [ax, az] = pts[i], [bx, bz] = pts[i + 1], L = Math.hypot(bx - ax, bz - az);
+    for (let s = 0; s < L; s += 1.2) layDisk(ax + ((bx - ax) * s) / L, az + ((bz - az) * s) / L, 1.4, 1, 0.9);
   }
 
-  // ---------- 3. the riverside and the park ----------
-  await tick(0.35, 'Filling the river');
-  layRect(-WORLD, 20, WORLD, 280, 2);
-  const promenade = (x) => [riverZ(x) - RIVER.hw - 11, riverZ(x) - RIVER.hw, riverZ(x) + RIVER.hw, riverZ(x) + RIVER.hw + 11];
-  for (let c = 0; c < LAYOUT_N; c++) {
-    const x = ((c + 0.5) / LAYOUT_N - 0.5) * 2 * WORLD, [a, b, e, f] = promenade(x);
-    for (let r = Math.floor(lx(a)); r < Math.ceil(lx(f)); r++) {
-      const z = ((r + 0.5) / LAYOUT_N - 0.5) * 2 * WORLD;
-      if ((z > a && z < b) || (z > e && z < f)) layout[(r * LAYOUT_N + c) * 4] = 6;
-    }
-  }
-  // embankment walls along both banks
-  for (let x = -WORLD - 40; x < WORLD + 40; x += 8) {
-    for (const s of [-1, 1]) {
-      const z0 = riverZ(x) + s * (RIVER.hw + 0.75), z1 = riverZ(x + 8) + s * (RIVER.hw + 0.75);
-      const yaw = -Math.atan2(z1 - z0, 8);
-      basic(G.cube, TM.yaw(x + 4, -1.2, (z0 + z1) / 2, 8.3, 4.0, 1.5, yaw), [0.12, 0.11, 0.1]);
-    }
-  }
-  let wheel = null;
-  for (const b of blocks) {
-    if (b.kind !== 'river') continue;
-    sidewalk(b.x0, b.z0, b.x1, b.z0 + 4);
-    sidewalk(b.x0, b.z1 - 4, b.x1, b.z1);
-    // promenade lamps and trees
-    for (let x = b.x0 + 8; x < b.x1 - 4; x += 24)
-      for (const s of [-1, 1]) {
-        const z = riverZ(x) + s * (RIVER.hw + 3);
-        basic(G.cyl, TM.box(x, 2.2, z, 0.16, 4.4, 0.16), [0.05, 0.05, 0.06]);
-        emissive(G.sphere, TM.box(x, 4.6, z, 0.6, 0.6, 0.6), LAMP, 2.5);
-        sprite(x, 4.6, z, LAMP, 4.5, 0.7);
-        splat(x, z, 0.8, 0.58, 0.36, 5.5);
+  // lamps along a path, on alternating sides, at a distance off the centre line
+  function lampsAlong(pts, step, off, h, anyGround) {
+    let acc = step * 0.5, side = 1;
+    for (let i = 0; i + 1 < pts.length; i++) {
+      const [ax, az] = pts[i], [bx, bz] = pts[i + 1], L = Math.hypot(bx - ax, bz - az);
+      if (L < 0.5) continue;
+      const dx = (bx - ax) / L, dz = (bz - az) / L;
+      for (let s = 0; s < L; s += 1) {
+        if ((acc -= 1) > 0) continue;
+        acc += step; side = -side;
+        const px = ax + dx * s - dz * off * side, pz = az + dz * s + dx * off * side;
+        if (footAt(px, pz) || nearJunction(px, pz, 2)) continue;
+        if (!anyGround && layAt(px, pz, 0) === 0) continue;
+        streetLamp(px, pz, 0, 0, h);
       }
-    for (let k = 0, n = ((b.x1 - b.x0) / 9) * Q.trees; k < n; k++) {
-      const x = Rd(b.x0 + 3, b.x1 - 3), s = rd() < 0.5 ? -1 : 1, rz = riverZ(x);
-      const z = s < 0 ? Rd(b.z0 + 7, rz - RIVER.hw - 14) : Rd(rz + RIVER.hw + 14, b.z1 - 7);
-      tree(x, z, Rd(0.9, 1.4), rd() < 0.2);
     }
-    if (!wheel && b.x0 < 430 && b.x1 > 430) wheel = ferrisWheel(b.cx, (b.z0 + 4 + riverZ(b.cx) - RIVER.hw - 11) / 2);
+  }
+  // lamps along the footpaths that cross parks, and over the car parks and squares
+  for (const pts of foots) lampsAlong(pts, Q.lampStep * 1.3, 0.9, 4.2, false);
+  for (const a of areas) {
+    if (a.type !== AREA.paved || polyArea(a.pts) < 900) continue;
+    const [x0, z0, x1, z1] = bounds(a.pts);
+    for (let x = x0 + 8; x < x1; x += Q.lampStep * 0.9)
+      for (let z = z0 + 8; z < z1; z += Q.lampStep * 0.9)
+        if (pointInPoly(x, z, a.pts) && !footAt(x, z)) streetLamp(x, z, 0, 0, 5.5);
   }
 
-  function ferrisWheel(px, pz) {
-    const py = 38, rad = 30, w = 0.055, piv = [px, py, pz, w];
-    const ring = 56, spokes = 16;
-    for (const side of [-1.6, 1.6]) {
-      for (let k = 0; k < ring; k++) {
-        const a0 = (k / ring) * Math.PI * 2, a1 = ((k + 1) / ring) * Math.PI * 2;
-        basic(G.cube, TM.seg(px + Math.cos(a0) * rad, py + Math.sin(a0) * rad, pz + side, px + Math.cos(a1) * rad, py + Math.sin(a1) * rad, pz + side, 0.55), [0.55, 0.55, 0.6], ANIM.wheel, piv);
-        sprite(px + Math.cos(a0) * rad, py + Math.sin(a0) * rad, pz + side * 1.2, [1, 1, 1], 7, 0.75, ANIM.wheel, 0, k / ring, piv);
-      }
-      for (let k = 0; k < spokes; k++) {
-        const a = (k / spokes) * Math.PI * 2;
-        basic(G.cube, TM.seg(px, py, pz + side, px + Math.cos(a) * rad, py + Math.sin(a) * rad, pz + side, 0.22), [0.5, 0.5, 0.55], ANIM.wheel, piv);
-        for (let r = 6; r < rad - 2; r += 6) sprite(px + Math.cos(a) * r, py + Math.sin(a) * r, pz + side * 1.2, [1, 1, 1], 5, 0.6, ANIM.wheel, 0, 0.5 + r / rad / 3, piv);
-      }
-    }
-    basic(G.cyl, TM.seg(px, py, pz - 3.5, px, py, pz + 3.5, 3), [0.4, 0.4, 0.45]);
-    for (let k = 0; k < spokes; k++) {
-      const a = (k / spokes) * Math.PI * 2, c = pick(NEON);
-      G.cube.push(TM.box(0, -1.7, 0, 2.6, 2.4, 2.4), [c[0] * 0.5, c[1] * 0.5, c[2] * 0.5, 0], [MAT.basic, ANIM.gondola, rad, a], piv);
-      G.sprite.push([1, 0, 0, 0, 0, 1, 0, -1.7, 0, 0, 1, 0], [1, 0.75, 0.5, 2], [0.9, ANIM.gondola, rad, a], piv);
-    }
-    for (const sx of [-1, 1]) for (const sz of [-1, 1]) basic(G.cube, TM.seg(px + sx * 16, 0, pz + sz * 5, px, py, pz + sz * 2.4, 1.1), [0.32, 0.32, 0.36]);
-    splat(px, pz, 0.6, 0.5, 0.6, 22);
-    return { x: px, y: py, z: pz, r: rad };
-  }
-
-  const parkC = { x: (PARK.x0 + PARK.x1) / 2, z: (PARK.z0 + PARK.z1) / 2 };
-  // the pond fills the biggest park block, clear of the streets
-  const pb = blocks.filter((b) => b.kind === 'park').reduce((a, b) => ((b.x1 - b.x0) * (b.z1 - b.z0) > (a.x1 - a.x0) * (a.z1 - a.z0) ? b : a));
-  const pond = { x: pb.cx, z: pb.cz, rx: (pb.x1 - pb.x0) / 2 - 14, rz: (pb.z1 - pb.z0) / 2 - 14 };
-  const parkPaths = [];
-  for (let k = 0; k < 5; k++) {
-    const pts = [], horizontal = k % 2 === 0, ph = R(0, 6), amp = R(15, 45), off = R(-150, 150);
-    for (let t = 0; t <= 1.0001; t += 0.01) {
-      const u = lerp(horizontal ? PARK.x0 - 40 : PARK.z0 - 40, horizontal ? PARK.x1 + 40 : PARK.z1 + 40, t);
-      const v = (horizontal ? parkC.z : parkC.x) + off + Math.sin(t * 7 + ph) * amp;
-      pts.push(horizontal ? [u, v] : [v, u]);
-    }
-    parkPaths.push(pts);
-  }
-  const nearPath = (x, z) => layout[(Math.floor(lx(z)) * LAYOUT_N + Math.floor(lx(x))) * 4 + 1] > 40;
-  const inPond = (x, z) => ((x - pond.x) / pond.rx) ** 2 + ((z - pond.z) / pond.rz) ** 2 < 1.15;
-  for (const b of blocks) if (b.kind === 'park') { layRect(b.x0, b.z0, b.x1, b.z1, 2); }
-  for (const pts of parkPaths)
-    for (let k = 0; k < pts.length; k++) {
-      const [x, z] = pts[k];
-      const inPark = blocks.some((b) => b.kind === 'park' && x > b.x0 + 4 && x < b.x1 - 4 && z > b.z0 + 4 && z < b.z1 - 4);
-      if (!inPark || inPond(x, z)) continue;
-      if (k + 1 < pts.length) for (let s = 0; s < 1; s += 0.2) layDisk(lerp(x, pts[k + 1][0], s), lerp(z, pts[k + 1][1], s), 2.0, 1);
-      if (k % 6 === 0) {
-        basic(G.cyl, TM.box(x + 3, 2, z, 0.14, 4, 0.14), [0.05, 0.05, 0.06]);
-        emissive(G.sphere, TM.box(x + 3, 4.2, z, 0.55, 0.55, 0.55), LAMP, 2.5);
-        sprite(x + 3, 4.2, z, LAMP, 4, 0.7);
-        splat(x + 3, z, 0.75, 0.55, 0.34, 5);
-      }
-    }
-  // the pond (alpha channel), soft-edged
-  for (let r = Math.floor(lx(pond.z - pond.rz - 4)); r < Math.ceil(lx(pond.z + pond.rz + 4)); r++)
-    for (let c = Math.floor(lx(pond.x - pond.rx - 4)); c < Math.ceil(lx(pond.x + pond.rx + 4)); c++) {
-      const x = ((c + 0.5) / LAYOUT_N - 0.5) * 2 * WORLD, z = ((r + 0.5) / LAYOUT_N - 0.5) * 2 * WORLD;
-      const d = Math.hypot((x - pond.x) / pond.rx, (z - pond.z) / pond.rz) + 0.08 * Math.sin(Math.atan2(z - pond.z, x - pond.x) * 5);
-      layout[(r * LAYOUT_N + c) * 4 + 3] = Math.round(255 * smooth(1.02, 0.96, d));
-    }
-  for (const b of blocks) {
-    if (b.kind !== 'park') continue;
-    sidewalk(b.x0, b.z0, b.x1, b.z0 + 4); sidewalk(b.x0, b.z1 - 4, b.x1, b.z1);
-    sidewalk(b.x0, b.z0 + 4, b.x0 + 4, b.z1 - 4); sidewalk(b.x1 - 4, b.z0 + 4, b.x1, b.z1 - 4);
-    const n = (((b.x1 - b.x0) * (b.z1 - b.z0)) / 140) * Q.trees;
+  // ---------- 5. trees: parks, woods and gardens ----------
+  await tick(0.5, 'Planting the parks');
+  function bounds(pts) { let x0 = 1e9, z0 = 1e9, x1 = -1e9, z1 = -1e9; for (const [x, z] of pts) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); z0 = Math.min(z0, z); z1 = Math.max(z1, z); } return [x0, z0, x1, z1]; }
+  function polyArea(p) { let s = 0; for (let i = 0; i < p.length; i++) { const a = p[i], b = p[(i + 1) % p.length]; s += a[0] * b[1] - b[0] * a[1]; } return Math.abs(s) / 2; }
+  let treeCount = 0;
+  const DENS = { [AREA.park]: 230, [AREA.wood]: 55, [AREA.grave]: 260, [AREA.residential]: 1600, [AREA.farm]: 0, [AREA.pitch]: 0 };
+  for (const a of areas) {
+    const d = DENS[a.type];
+    if (!d) continue;
+    const [x0, z0, x1, z1] = bounds(a.pts), n = (polyArea(a.pts) / d) * Q.trees * (a.type === AREA.residential ? 0.7 : 1);
     for (let k = 0; k < n; k++) {
-      const x = Rd(b.x0 + 7, b.x1 - 7), z = Rd(b.z0 + 7, b.z1 - 7);
-      if (nearPath(x, z) || inPond(x, z)) continue;
-      tree(x, z, Rd(0.9, 1.6), rd() < 0.25);
+      const x = Rd(x0, x1), z = Rd(z0, z1);
+      if (!pointInPoly(x, z, a.pts)) continue;
+      if (footAt(x, z) || footAt(x + 3, z) || footAt(x, z + 3) || layAt(x, z, 0) === 6 || layAt(x, z, 1) > 40 || layAt(x, z, 3) > 8) continue;
+      tree(x, z, Rd(0.9, 1.6), rd() < (a.type === AREA.wood ? 0.35 : 0.2));
+      treeCount++;
     }
   }
 
-  // ---------- 4. street lamps ----------
-  await tick(0.5, 'Switching on the lights');
-  const inCross = (pos, cross) => cross.some((c) => Math.abs(pos - c.pos) < c.w / 2 + 3);
-  for (const h of hz)
-    for (let x = -WORLD + 8; x < WORLD - 8; x += Q.lampStep)
-      for (const s of [-1, 1]) {
-        if (inCross(x, vx)) continue;
-        const z = h.pos + s * (h.w / 2 + 0.8);
-        if (Math.abs(z) > WORLD - 2) continue;
-        streetLamp(x, z, 0, -s);
+  // ---------- 6. the stadiums ----------
+  await tick(0.6, 'Lighting the stadiums');
+  for (const [sx, sz, L, W, a, nm] of stadiumBoxes) {
+    const c = Math.cos(a), s = Math.sin(a), rx = L / 2, rz = W / 2;
+    const pt = (t, k, y = 0) => [sx + c * Math.cos(t) * rx * k - s * Math.sin(t) * rz * k, sz + s * Math.cos(t) * rx * k + c * Math.sin(t) * rz * k];
+    // grass inside the bowl
+    const pitch = [];
+    for (let k = 0; k < 40; k++) pitch.push(pt((k / 40) * Math.PI * 2, 0.5));
+    layPoly(pitch, 2);
+    // three raked rings of stands, and a glowing rim along the roof
+    const tiers = [[0.62, 0.78, 7], [0.76, 0.9, 13], [0.88, 1.0, 19]];
+    const N = 44;
+    for (const [k0, k1, h] of tiers)
+      for (let k = 0; k < N; k++) {
+        const t0 = (k / N) * Math.PI * 2, t1 = ((k + 1) / N) * Math.PI * 2, km = (k0 + k1) / 2;
+        const A = pt(t0, km), Bp = pt(t1, km), len = Math.hypot(Bp[0] - A[0], Bp[1] - A[1]) + 0.6;
+        const ang = Math.atan2(Bp[1] - A[1], Bp[0] - A[0]);
+        basic(G.cube, TM.yaw((A[0] + Bp[0]) / 2, h / 2, (A[1] + Bp[1]) / 2, len, h, (k1 - k0) * Math.min(rx, rz) * 1.05, -ang), [0.28, 0.28, 0.3]);
+        collider((A[0] + Bp[0]) / 2, 0, (A[1] + Bp[1]) / 2, len / 2, (k1 - k0) * Math.min(rx, rz) * 0.52, h, ang);
+        if (k0 > 0.85) emissive(G.cube, TM.yaw((A[0] + Bp[0]) / 2, h + 0.3, (A[1] + Bp[1]) / 2, len, 0.5, 0.5, -ang), [0.9, 0.95, 1], 3.5);
       }
-  for (const v of vx) {
-    const zA = v.avenue ? riverZ(v.pos) - RIVER.hw - RIVER.ramp : 20, zB = v.avenue ? riverZ(v.pos) + RIVER.hw + RIVER.ramp : 280;
-    for (let z = -WORLD + 8 + Q.lampStep / 2; z < WORLD - 8; z += Q.lampStep)
-      for (const s of [-1, 1]) {
-        if (inCross(z, hz) || (z > zA - 4 && z < zB + 4)) continue;
-        const x = v.pos + s * (v.w / 2 + 0.8);
-        if (Math.abs(x) > WORLD - 2) continue;
-        streetLamp(x, z, -s, 0);
-      }
+    // floodlight masts at the corners
+    for (const t of [0.8, 2.34, 3.94, 5.48]) {
+      const [mx, mz] = pt(t, 1.04);
+      basic(G.cyl, TM.box(mx, 20, mz, 1.2, 40, 1.2), [0.3, 0.3, 0.32]);
+      collider(mx, 0, mz, 0.6, 0.6, 40, 0);
+      for (let i = -2; i <= 2; i++) for (let j = 0; j < 2; j++) sprite(mx + i * 1.2, 40 + j * 1.2, mz, [1, 0.97, 0.9], 7, 1.0);
+    }
+    // the pitch is floodlit
+    for (let x = -rx * 0.5; x < rx * 0.5; x += 14)
+      for (let z = -rz * 0.5; z < rz * 0.5; z += 14) splat(sx + c * x - s * z, sz + s * x + c * z, 0.95, 0.98, 0.9, 14);
   }
 
-  // ---------- 5. traffic ----------
-  await tick(0.6, 'Starting the traffic');
+  // ---------- 7. chimneys and towers ----------
+  for (const [x, z, h, t] of city.c) {
+    basic(G.cyl, TM.box(x, h / 2, z, t === 0 ? 4 : 3, h, t === 0 ? 4 : 3), [0.3, 0.3, 0.32]);
+    collider(x, 0, z, 2, 2, h, 0);
+    sprite(x, h + 0.6, z, [1, 0.08, 0.04], 8, 1.1, ANIM.blink, 0, rd());
+  }
+
+  // ---------- 8. the railway and the tram lines ----------
+  await tick(0.65, 'Running the trains');
+  const BED = [0.05, 0.045, 0.04], RAIL = [0.34, 0.33, 0.32];
+  const tracks = [];
+  for (const rl of rails) {
+    const pts = rl.pts;
+    for (let i = 0; i + 1 < pts.length; i++) {
+      const [ax, az] = pts[i], [bx, bz] = pts[i + 1], L = Math.hypot(bx - ax, bz - az);
+      if (L < 0.5) continue;
+      const ang = Math.atan2(bz - az, bx - ax), mx = (ax + bx) / 2, mz = (az + bz) / 2, nx = -Math.sin(ang), nz = Math.cos(ang);
+      if (!rl.tram) basic(G.cube, TM.yaw(mx, 0.12, mz, L + 0.4, 0.24, 4.6, -ang), BED);
+      for (const s of [-0.72, 0.72]) basic(G.cube, TM.yaw(mx + nx * s, rl.tram ? 0.12 : 0.28, mz + nz * s, L + 0.3, 0.1, 0.12, -ang), RAIL);
+      if (L > (rl.tram ? 70 : 150)) tracks.push({ ax, az, bx, bz, L, tram: rl.tram });
+    }
+  }
+  let vehicles = 0;
+  for (const tr of tracks) {
+    if (rd() > (tr.tram ? 0.5 : 0.35)) continue;
+    const ang = Math.atan2(tr.bz - tr.az, tr.bx - tr.ax), pack = (ang < 0 ? ang + Math.PI * 2 : ang) + 8 * (tr.tram ? 9 : 22);
+    const q = [tr.ax, tr.az, pack, tr.L], cars = tr.tram ? 2 : 4, len = tr.tram ? 13 : 15, y0 = tr.tram ? 1.9 : 2.1;
+    const s0 = Rd(0, tr.L);
+    for (let k = 0; k < cars; k++) {
+      const ph = s0 - k * (len + 0.5);
+      const col = tr.tram ? [0.75, 0.6, 0.1, 0] : [0.7, 0.72, 0.75, 0];
+      G.cube.push(TM.box(0, y0, 0, len, tr.tram ? 3.2 : 3.4, tr.tram ? 2.5 : 3.0), col, [MAT.train, ANIM.car, seedN++, ph], q);
+      if (k === 0) for (const z of [-0.9, 0.9]) sprite(len / 2 + 0.1, 1.2, z, [1, 0.95, 0.85], 6, 0.5, ANIM.car, 1, ph, q);
+      if (k === cars - 1) for (const z of [-0.9, 0.9]) sprite(-len / 2 - 0.1, 1.2, z, [1, 0.06, 0.03], 4, 0.4, ANIM.car, -1, ph, q);
+    }
+    vehicles++;
+  }
+
+  // ---------- 9. traffic ----------
+  await tick(0.75, 'Starting the traffic');
   const CARS = [[0.5, 0.05, 0.04], [0.06, 0.07, 0.09], [0.6, 0.6, 0.62], [0.12, 0.2, 0.35], [0.03, 0.03, 0.03], [0.35, 0.35, 0.37], [0.05, 0.18, 0.12], [0.55, 0.38, 0.05]];
+  const dens = [1, 1, 1, 1.2, 2.4, 4];
+  let expected = 0;
+  for (const rn of runs) expected += (rn.L * (rn.r.ow ? rn.r.tot : rn.r.tot)) * (1 / dens[rn.r.cls]);
+  const thin = Math.min(1, Q.carCap / Math.max(1, (expected / (Q.carGap + 9)) * 1.0));
   let carCount = 0;
-  // seg 0 runs the whole street, seg 1 / seg 2 only the part north / south of the river (shaders.js: carPose)
-  const SEGS = [2 * WORLD, WORLD + 20, WORLD - 280];
-  function lane(axis, coord, dir, avenue, seg = 0) {
-    const speed = Rd(9, 16), L = SEGS[seg];
-    for (let s = Rd(0, Q.carGap); s < L - 8; s += Q.carGap * Rd(0.4, 1.6) + 9) {
-      const q = [axis + 2 * seg, coord, dir, speed], bus = avenue && rd() < 0.05;
+  function lane(ax, az, bx, bz, off, rn) {
+    const L = rn.L, dx = (bx - ax) / L, dz = (bz - az) / L;
+    const x0 = ax - dz * off, z0 = az + dx * off;           // the right-hand side of the direction of travel
+    let ang = Math.atan2(dz, dx); if (ang < 0) ang += Math.PI * 2;
+    const fast = rn.r.cls <= 2, speed = Math.round(fast ? Rd(12, 17) : Rd(6, 11));
+    const gap = (Q.carGap * dens[rn.r.cls]) / thin;
+    for (let s = Rd(0, gap); s < L - 8; s += gap * Rd(0.4, 1.6) + 9) {
+      const q = [x0, z0, ang + 8 * speed, L], bus = rn.r.cls <= 2 && rd() < 0.05;
       if (bus) {
         G.cube.push(TM.box(0, 1.8, 0, 11, 2.9, 2.5), [0.75, 0.75, 0.72, 0], [MAT.train, ANIM.car, seedN++, s], q);
         for (const z of [-0.8, 0.8]) { sprite(5.55, 0.9, z, [1, 0.92, 0.8], 4, 0.4, ANIM.car, 1, s, q); sprite(-5.55, 0.9, z, [1, 0.06, 0.03], 3, 0.32, ANIM.car, -1, s, q); }
       } else {
-        const taxi = rd() < 0.12, col = taxi ? [0.75, 0.55, 0.05] : pickd(CARS);
+        const taxi = rd() < 0.1, col = taxi ? [0.75, 0.55, 0.05] : pickd(CARS);
         G.cube.push(TM.box(0, 0.72, 0, 4.4, 0.78, 1.86), [...col, 0], [MAT.basic, ANIM.car, seedN++, s], q);
         G.cube.push(TM.box(-0.3, 1.38, 0, 2.3, 0.58, 1.62), [0.02, 0.022, 0.026, 0], [MAT.basic, ANIM.car, seedN++, s], q);
         for (const z of [-0.62, 0.62]) { sprite(2.22, 0.78, z, [1, 0.92, 0.8], 4, 0.35, ANIM.car, 1, s, q); sprite(-2.22, 0.85, z, [1, 0.06, 0.03], 3, 0.3, ANIM.car, -1, s, q); }
@@ -545,54 +615,22 @@ async function buildWorld(Q, progress) {
       carCount++;
     }
   }
-  // right-hand traffic: driving +x keeps to +z, driving +z keeps to -x
-  for (const h of hz) {
-    const offs = h.avenue ? [2.2, 5.8] : [3];
-    for (const o of offs) { lane(0, h.pos + o, 1, h.avenue); lane(0, h.pos - o, -1, h.avenue); }
-  }
-  for (const v of vx) {
-    const offs = v.avenue ? [2.2, 5.8] : [3];
-    for (const seg of v.avenue ? [0] : [1, 2])
-      for (const o of offs) { lane(1, v.pos - o, 1, v.avenue, seg); lane(1, v.pos + o, -1, v.avenue, seg); }
-  }
-
-  // ---------- 6. the elevated train ----------
-  await tick(0.7, 'Running the trains');
-  const ta = nearest(vx, -250, true).pos, tb = nearest(vx, 560, true).pos, tc = nearest(hz, -760, true).pos, td = 20;
-  const T = { cx: (ta + tb) / 2, cz: (tc + td) / 2, hx: (tb - ta) / 2, hz: (td - tc) / 2, r: 16 };
-  const TL = trainLength(T);
-  for (let s = 0; s < TL; s += 4) {
-    const [x, z, dx, dz] = trainPath(T, s + 2), yaw = Math.atan2(-dz, dx);
-    basic(G.cube, TM.yaw(x, TRAIN_Y - 0.6, z, 4.3, 1.2, 6.4, yaw), [0.16, 0.16, 0.18]);
-    if (Math.round(s) % 32 === 0) basic(G.cyl, TM.box(x, (TRAIN_Y - 1.2) / 2, z, 1.6, TRAIN_Y - 1.2, 1.6), [0.15, 0.15, 0.16]);
-    if (Math.round(s) % 12 === 0) for (const o of [-3.3, 3.3]) sprite(x - dz * o, TRAIN_Y - 0.4, z + dx * o, [0.4, 0.7, 1.0], 1.8, 0.35);
-  }
-  for (let t = 0; t < 2; t++)
-    for (let k = 0; k < 5; k++) {
-      const s0 = (t * TL) / 2 - k * 16, q = [s0, 17, 0, 0];
-      G.cube.push(TM.box(0, 1.9, 0, 15, 3.3, 3.0), [0.7, 0.72, 0.75, 0], [MAT.train, ANIM.train, seedN++, 0], q);
-      if (k === 0) for (const z of [-0.9, 0.9]) sprite(7.6, 1.2, z, [1, 0.95, 0.85], 6, 0.5, ANIM.train, 0, 0, q);
+  for (const rn of runs) {
+    const r = rn.r, lw = (r.w - 1) / (r.ow ? r.tot : r.tot);
+    if (r.cls === 5 && rd() < 0.5) continue;
+    if (r.ow) {
+      for (let k = 0; k < r.tot; k++) lane(rn.ax, rn.az, rn.bx, rn.bz, (k + 0.5 - r.tot / 2) * lw, rn);
+    } else {
+      const per = Math.max(1, Math.floor(r.tot / 2));
+      for (let k = 0; k < per; k++) {
+        lane(rn.ax, rn.az, rn.bx, rn.bz, (k + 0.5) * lw, rn);
+        lane(rn.bx, rn.bz, rn.ax, rn.az, (k + 0.5) * lw, rn);
+      }
     }
-
-  // ---------- 7. sky: a blimp and searchlights ----------
-  {
-    const q = [100, -250, 700, 7], ph = 1.3;
-    const env = (m, col) => G.sphere.push(m, [...col, 0], [MAT.basic, ANIM.blimp, seedN++, ph], q);
-    env(TM.box(0, 0, 0, 52, 13, 13), [0.3, 0.3, 0.31]);
-    basic(G.cube, TM.box(2, -7.2, 0, 9, 2.2, 3), [0.2, 0.2, 0.22], ANIM.blimp, q, ph);
-    for (const [y, z, sy, sz] of [[5, 0, 7, 0.4], [-5, 0, 7, 0.4], [0, 5, 0.4, 7], [0, -5, 0.4, 7]]) basic(G.cube, TM.box(-23, y, z, 7, sy, sz), [0.28, 0.28, 0.3], ANIM.blimp, q, ph);
-    for (const z of [-6.6, 6.6]) G.cube.push(TM.box(3, 0.5, z, 24, 6.5, 0.3), [0.3, 0.8, 1.0, 3], [MAT.neon, ANIM.blimp, seedN++, ph], q);
-    sprite(26.5, 0, 0, [1, 1, 1], 6, 0.8, ANIM.blimp, 0, ph, q);
-    sprite(-26, 0, 0, [1, 0.15, 0.1], 6, 0.8, ANIM.blimp, 0, ph, q);
-    sprite(2, -8.6, 0, [1, 0.8, 0.5], 4, 0.9, ANIM.blimp, 0, ph, q);
   }
-  tallest.sort((a, b) => b.H - a.H);
-  for (const t of tallest.slice(0, 4))
-    for (let k = 0; k < 2; k++)
-      G.beam.push(TM.box(t.x, t.top + 1, t.z, 16, 1600, 16), [0.55, 0.65, 1.0, 0.022], [0, ANIM.beam, seedN++, rng() * 6.3], [R(0.12, 0.25) * (k ? -1 : 1), R(0.35, 0.6), 0, 0]);
 
-  // ---------- 8. bake the ground light and ambient occlusion ----------
-  await tick(0.8, 'Baking light');
+  // ---------- 10. bake the ground light and ambient occlusion ----------
+  await tick(0.85, 'Baking light');
   const blur = (src, n, rad) => {
     const tmp = new Float32Array(src.length), out = new Float32Array(src.length);
     for (let r = 0; r < n; r++) {
@@ -613,7 +651,7 @@ async function buildWorld(Q, progress) {
     }
     return out;
   };
-  const ao = blur(blur(foot, LIGHT_N, 2), LIGHT_N, 1);
+  const ao = blur(blur(foot, LIGHT_N, 1), LIGHT_N, 1);
   const lightTex = new Uint8Array(LIGHT_N * LIGHT_N * 4);
   for (let i = 0; i < LIGHT_N * LIGHT_N; i++) {
     lightTex[i * 4] = Math.min(255, light[i * 3] * 64);
@@ -623,33 +661,73 @@ async function buildWorld(Q, progress) {
   }
 
   // collision: a coarse grid of the building boxes
-  const CELL = 64, grid = new Map(), nb = boxes.length / 6;
+  const CELL = 64, grid = new Map(), nb = boxes.length / 10;
   for (let i = 0; i < nb; i++) {
-    const o = i * 6;
-    for (let gx = Math.floor(boxes[o] / CELL); gx <= Math.floor(boxes[o + 3] / CELL); gx++)
-      for (let gz = Math.floor(boxes[o + 2] / CELL); gz <= Math.floor(boxes[o + 5] / CELL); gz++) {
+    const o = i * 10, hl = boxes[o + 3], hw = boxes[o + 5], cx = boxes[o + 6], cz = boxes[o + 7], c = boxes[o + 8], s = boxes[o + 9];
+    const ex = Math.abs(c) * hl + Math.abs(s) * hw, ez = Math.abs(s) * hl + Math.abs(c) * hw;
+    for (let gx = Math.floor((cx - ex) / CELL); gx <= Math.floor((cx + ex) / CELL); gx++)
+      for (let gz = Math.floor((cz - ez) / CELL); gz <= Math.floor((cz + ez) / CELL); gz++) {
         const k = gx * 100003 + gz;
         if (!grid.has(k)) grid.set(k, []);
         grid.get(k).push(i);
       }
   }
 
-  // ---------- 9. viewpoints (keys 1-6) ----------
-  const ave = nearest(vx, 150, true), sx = suspension.pos;
+  // street names and neighbourhoods for the label on screen
+  const nameGrid = new Map();
+  named.forEach((s, i) => {
+    const x0 = Math.min(s.ax, s.bx), x1 = Math.max(s.ax, s.bx), z0 = Math.min(s.az, s.bz), z1 = Math.max(s.az, s.bz);
+    for (let gx = Math.floor((x0 - 12) / 100); gx <= Math.floor((x1 + 12) / 100); gx++)
+      for (let gz = Math.floor((z0 - 12) / 100); gz <= Math.floor((z1 + 12) / 100); gz++) {
+        const k = gx * 100003 + gz;
+        if (!nameGrid.has(k)) nameGrid.set(k, []);
+        nameGrid.get(k).push(i);
+      }
+  });
+  function streetAt(x, z) {
+    let best = null, bd = 1e9;
+    for (const i of nameGrid.get(Math.floor(x / 100) * 100003 + Math.floor(z / 100)) || []) {
+      const s = named[i], dx = s.bx - s.ax, dz = s.bz - s.az, l2 = dx * dx + dz * dz || 1;
+      const t = clamp(((x - s.ax) * dx + (z - s.az) * dz) / l2, 0, 1), d = Math.hypot(x - (s.ax + dx * t), z - (s.az + dz * t)) - s.w / 2;
+      if (d < bd) { bd = d; best = s; }
+    }
+    return best && bd < 22 ? names[best.n - 1] : '';
+  }
+  function placeAt(x, z) {
+    let best = '', bd = 1e9;
+    for (const [n, px, pz, k] of city.p) {
+      let d = Math.hypot(x - px, z - pz);
+      if (k === 2) d = d < 140 ? d * 0.3 : 1e9;
+      else if (k === 0) d *= 0.8;
+      if (d < bd) { bd = d; best = n; }
+    }
+    return bd < 1800 ? best : '';
+  }
+
+  // ---------- 11. viewpoints (keys 1-6) ----------
+  const sq = geo(44.31798, 23.79493), cat = geo(44.31516, 23.79193), stad = geo(44.3140, 23.7843);
+  const gara = geo(44.3288, 23.8167), elec = geo(44.3078, 23.8302), lake0 = geo(44.2990, 23.8135);
+  let lake = lake0, lakeD = 1e9;
+  for (const a of areas) {
+    if (a.type !== AREA.water || polyArea(a.pts) < 20000) continue;
+    const [x0, z0, x1, z1] = bounds(a.pts), cx = (x0 + x1) / 2, cz = (z0 + z1) / 2, d = Math.hypot(cx - lake0[0], cz - lake0[1]);
+    if (d < lakeD) { lakeD = d; lake = [cx, cz]; }
+  }
   const views = [
-    { name: 'Downtown avenue', pos: [ave.pos + ave.w / 2 + 1.8, 2.2, -120], at: [ave.pos, 40, -700] },
-    { name: 'Skyline across the river', pos: [190, 22, riverZ(190) + RIVER.hw + 30], at: [140, 110, -420] },
-    { name: 'Ferris wheel', pos: wheel ? [wheel.x + 75, 26, wheel.z + 95] : [400, 30, 150], at: wheel ? [wheel.x, 36, wheel.z] : [400, 30, 50] },
-    { name: 'Above downtown', pos: [760, 420, 260], at: [150, 60, -380] },
-    { name: 'The park', pos: [pond.x - 45, 7, pond.z - 12], at: [150, 90, -380] },
-    { name: 'Suspension bridge', pos: [sx + 3.5, ROADY + RIVER.h + 2.2, riverZ(sx) + 22], at: [sx, 30, riverZ(sx) - 160] },
+    { name: 'Piața Mihai Viteazul', pos: [sq[0] + 10, 2.2, sq[1] + 18], at: [cat[0], 22, cat[1]] },
+    { name: 'The old centre from above', pos: [sq[0] + 450, 300, sq[1] + 600], at: [sq[0], 20, sq[1]] },
+    { name: 'Parcul Nicolae Romanescu', pos: [lake[0] - 40, 35, lake[1] + 190], at: [lake[0], 0, lake[1]] },
+    { name: 'Stadionul Ion Oblemenco', pos: [stad[0] + 150, 75, stad[1] + 210], at: [stad[0], 14, stad[1]] },
+    { name: 'Gara Craiova', pos: [gara[0] - 90, 70, gara[1] + 230], at: [gara[0], 8, gara[1]] },
+    { name: 'Electroputere and Ford', pos: [elec[0] - 300, 260, elec[1] + 520], at: [elec[0] + 300, 6, elec[1] - 180] },
   ];
 
-  await tick(0.9, 'Uploading the city');
+  await tick(0.92, 'Uploading the city');
   return {
-    groups: G, layout, lightTex, views, wheel,
+    groups: G, layout, lightTex, views, center: sq,
     collide: { boxes: new Float32Array(boxes), grid, CELL },
-    consts: { T, TL },
-    stats: { buildings: buildingCount, cars: carCount, boxes: nb },
+    consts: {},
+    label: { street: streetAt, place: placeAt },
+    stats: { buildings: buildingCount, cars: carCount, boxes: nb, trees: treeCount, roads: roads.length },
   };
 }

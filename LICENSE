@@ -48,3 +48,6 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+This project is a derivative of Afterglow City (c) 2026 John, MIT, and so also carries the Abyssal Garden notice above.
+The map data in source/src/data.js is (c) OpenStreetMap contributors, ODbL.

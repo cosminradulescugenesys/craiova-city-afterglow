@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------------
 // shaders.js: the look of the city (WGSL). Sky, fog, windows and the rooms behind them,
-// wet asphalt, water, neon, light sprites, searchlights, rain, then bloom and tone mapping.
+// wet asphalt, lakes, neon, light sprites, searchlights, rain, then bloom and tone mapping.
 // ---------------------------------------------------------------------------
 
 function sceneShader(C) {
@@ -32,15 +32,9 @@ struct Inst { m0: vec4f, m1: vec4f, m2: vec4f, col: vec4f, p: vec4f, q: vec4f };
 
 const PI = 3.14159265;
 const WORLD = ${f(WORLD)};
-const RIVER_Z = ${f(RIVER.z)};
-const RIVER_HW = ${f(RIVER.hw)};
-const RAMP = ${f(RIVER.ramp)};
-const BRIDGE_H = ${f(RIVER.h)};
 const ROADY = ${f(ROADY)};
-const TRAIN_Y = ${f(TRAIN_Y)};
-const BLIMP_Y = ${f(BLIMP_Y)};
 const LAYOUT_N = ${f(LAYOUT_N)};
-const T_CX = ${f(T.cx)}; const T_CZ = ${f(T.cz)}; const T_HX = ${f(T.hx)}; const T_HZ = ${f(T.hz)}; const T_R = ${f(T.r)};
+
 
 // ---------- hashing and noise ----------
 fn pcg(v: u32) -> u32 {
@@ -69,69 +63,28 @@ fn rotY(v: vec3f, a: f32) -> vec3f { let c = cos(a); let s = sin(a); return vec3
 fn rotX(v: vec3f, a: f32) -> vec3f { let c = cos(a); let s = sin(a); return vec3f(v.x, c * v.y - s * v.z, s * v.y + c * v.z); }
 fn rotZ(v: vec3f, a: f32) -> vec3f { let c = cos(a); let s = sin(a); return vec3f(c * v.x - s * v.y, s * v.x + c * v.y, v.z); }
 
-// ---------- the shape of the city (same formulas as world.js) ----------
-fn riverZ(x: f32) -> f32 { return RIVER_Z + 10.0 * sin(x * 0.0023 + 0.7) + 5.0 * sin(x * 0.0061); }
-fn bridgeH(x: f32, z: f32) -> f32 {
-  let d = abs(z - riverZ(x)) - RIVER_HW; let k = clamp(1.0 - d / RAMP, 0.0, 1.0);
-  return BRIDGE_H * k * k * (3.0 - 2.0 * k);
-}
-fn trainPath(s0: f32) -> vec4f {
-  let a = 2.0 * (T_HX - T_R); let b = 2.0 * (T_HZ - T_R); let c = 1.5707963 * T_R;
-  let L = 2.0 * a + 2.0 * b + 4.0 * c;
-  var s = s0 - floor(s0 / L) * L;
-  let x0 = T_CX - T_HX + T_R; let x1 = T_CX + T_HX - T_R; let z0 = T_CZ - T_HZ + T_R; let z1 = T_CZ + T_HZ - T_R;
-  if (s < a) { return vec4f(x0 + s, T_CZ - T_HZ, 1.0, 0.0); } s -= a;
-  if (s < c) { let g = -1.5707963 + s / T_R; return vec4f(x1 + T_R * cos(g), z0 + T_R * sin(g), -sin(g), cos(g)); } s -= c;
-  if (s < b) { return vec4f(T_CX + T_HX, z0 + s, 0.0, 1.0); } s -= b;
-  if (s < c) { let g = s / T_R; return vec4f(x1 + T_R * cos(g), z1 + T_R * sin(g), -sin(g), cos(g)); } s -= c;
-  if (s < a) { return vec4f(x1 - s, T_CZ + T_HZ, -1.0, 0.0); } s -= a;
-  if (s < c) { let g = 1.5707963 + s / T_R; return vec4f(x0 + T_R * cos(g), z1 + T_R * sin(g), -sin(g), cos(g)); } s -= c;
-  if (s < b) { return vec4f(T_CX - T_HX, z1 - s, 0.0, -1.0); } s -= b;
-  let g = PI + s / T_R; return vec4f(x0 + T_R * cos(g), z0 + T_R * sin(g), -sin(g), cos(g));
-}
-
 // ---------- animation: everything that moves is moved here, on the GPU ----------
-struct Pose { pos: vec3f, yaw: f32, pitch: f32 };
+// vehicles drive along a straight stretch of road: q = (start x, start z, heading + 8 * speed, length), phase = start offset
+struct Pose { pos: vec3f, yaw: f32, fade: f32 };
 fn carPose(q: vec4f, phase: f32, t: f32) -> Pose {
-  // q.x = axis + 2 * segment: the whole street, or only the part north / south of the river
-  let seg = floor(q.x * 0.5 + 0.01);
-  let axis = q.x - 2.0 * seg;
-  var lo = -WORLD; var hi = WORLD;
-  if (seg > 1.5) { lo = 280.0; } else if (seg > 0.5) { hi = 20.0; }
-  let L = hi - lo;
-  var s = lo + fract((phase + t * q.w) / L) * L;
-  if (q.z < 0.0) { s = lo + hi - s; }
+  let sp = floor(q.z / 8.0);
+  let ang = q.z - 8.0 * sp;
+  let s = fract((phase + t * sp) / q.w) * q.w;
   var P: Pose;
-  if (axis < 0.5) {
-    P.pos = vec3f(s, ROADY, q.y); P.yaw = select(PI, 0.0, q.z > 0.0); P.pitch = 0.0;
-  } else {
-    P.pos = vec3f(q.y, ROADY + bridgeH(q.y, s), s);
-    P.yaw = select(PI * 0.5, -PI * 0.5, q.z > 0.0);
-    P.pitch = atan(bridgeH(q.y, s + 0.5 * q.z) - bridgeH(q.y, s - 0.5 * q.z));
-  }
+  P.pos = vec3f(q.x + cos(ang) * s, ROADY, q.y + sin(ang) * s);
+  P.yaw = -ang;
+  P.fade = max(0.001, smoothstep(0.0, 9.0, s) * smoothstep(0.0, 9.0, q.w - s));
   return P;
 }
 struct AR { w: vec3f, n: vec3f, em: f32 };
 fn animate(I: Inst, w0: vec3f, n0: vec3f, t: f32) -> AR {
   var r: AR; r.w = w0; r.n = n0; r.em = 1.0;
   let a = u32(I.p.y + 0.5);
-  if (a == 1u) {          // car: drives along its lane, climbs the bridges
+  if (a == 1u) {          // vehicle: drives its stretch of road, shrinking away at both ends
     let P = carPose(I.q, I.p.w, t);
-    r.w = P.pos + rotY(rotZ(w0, P.pitch), P.yaw); r.n = rotY(rotZ(n0, P.pitch), P.yaw);
-  } else if (a == 2u) {   // train
-    let tp = trainPath(I.q.x + t * I.q.y); let yaw = atan2(-tp.w, tp.z);
-    r.w = vec3f(tp.x, TRAIN_Y, tp.y) + rotY(w0, yaw); r.n = rotY(n0, yaw);
-  } else if (a == 3u) {   // ferris wheel: turns about z through its hub
-    let ang = t * I.q.w;
-    r.w = I.q.xyz + rotZ(w0 - I.q.xyz, ang); r.n = rotZ(n0, ang);
-  } else if (a == 4u) {   // gondola: rides the rim but keeps hanging straight down
-    r.w = I.q.xyz + rotZ(vec3f(I.p.z, 0.0, 0.0), I.p.w + t * I.q.w) + w0;
+    r.w = P.pos + rotY(w0 * P.fade, P.yaw); r.n = rotY(n0, P.yaw);
   } else if (a == 5u) {   // aircraft warning light
     r.em = select(0.0, 1.0, fract(t * 0.55 + I.p.w) < 0.14);
-  } else if (a == 6u) {   // blimp: a slow circle over the city
-    let ang = I.p.w + t * I.q.w / I.q.z;
-    let yaw = atan2(-cos(ang), -sin(ang));
-    r.w = vec3f(I.q.x + I.q.z * cos(ang), BLIMP_Y + 6.0 * sin(t * 0.1), I.q.y + I.q.z * sin(ang)) + rotY(w0, yaw); r.n = rotY(n0, yaw);
   }
   return r;
 }
@@ -242,8 +195,8 @@ fn shadeBuilding(I: Inst, w: vec3f, n: vec3f, lp: vec3f, V: vec3f) -> vec3f {
     return r * light;
   }
   var uC: f32; var width: f32; var T: vec3f; var face: u32;
-  if (abs(n.x) > 0.5) { uC = (lp.z + 0.5) * size.z; width = size.z; T = vec3f(0.0, 0.0, 1.0); face = select(1u, 0u, n.x > 0.0); }
-  else { uC = (lp.x + 0.5) * size.x; width = size.x; T = vec3f(1.0, 0.0, 0.0); face = select(3u, 2u, n.z > 0.0); }
+  if (abs(lp.x) > 0.499) { uC = (lp.z + 0.5) * size.z; width = size.z; T = normalize(vec3f(I.m0.z, I.m1.z, I.m2.z)); face = select(1u, 0u, lp.x > 0.0); }
+  else { uC = (lp.x + 0.5) * size.x; width = size.x; T = normalize(vec3f(I.m0.x, I.m1.x, I.m2.x)); face = select(3u, 2u, lp.z > 0.0); }
   let style = u32(I.q.x + 0.5);
   let fh = I.q.y;
   let cw = width / max(1.0, round(width / I.q.z));
@@ -310,32 +263,38 @@ fn shadeBuilding(I: Inst, w: vec3f, n: vec3f, lp: vec3f, V: vec3f) -> vec3f {
   return c;
 }
 
-fn shadeRoad(I: Inst, w: vec3f, n: vec3f, fp: vec2f, V: vec3f) -> vec3f {
+fn shadeRoad(I: Inst, w: vec3f, n: vec3f, fp: vec2f, V: vec3f, lp: vec3f) -> vec3f {
   let L = lightAt(w);
   if (n.y < 0.5) { return vec3f(0.12, 0.115, 0.11) * (ambientL(n, w.y) + sunL(n) + streetL(w, n)); }
   var alb = vec3f(0.032, 0.033, 0.037) * (0.75 + 0.5 * fbm(w.xz * 0.12));
   var mark = 0.0; var yel = 0.0;
-  let cx = I.m0.w; let cz = I.m2.w;
-  if (I.q.w < 0.5) {
-    var along = w.x; var across = w.z - cz;
-    if (I.q.x > 0.5) { along = w.z; across = w.x - cx; }
+  // q = (mode, width, lanes, one way); mode 0 a strip of road, 1 plain asphalt, 2 a zebra crossing
+  let mode = I.q.x;
+  if (mode < 1.5 && mode > 0.5) { /* junction pad: plain asphalt */ }
+  else {
+    let size = instSize(I);
+    let along = (lp.x + 0.5) * size.x; let across = lp.z * size.z;
     let fa = fwidth(across); let fl = fwidth(along);
     let half = I.q.y * 0.5; let a = abs(across);
-    let dash = (1.0 - smoothstep(0.0, 1.0, fl * 0.3));
-    if (I.q.z > 1.5) {
-      yel = band(abs(a - 0.22), 0.09, fa);
-      mark = band(abs(a - half * 0.5), 0.08, fa) * mix(0.45, step(fract(along / 12.0), 0.45), dash);
+    if (mode > 1.5) {
+      mark = step(fract(across * 0.85), 0.55) * step(a, half - 0.5) * 0.9;
     } else {
-      yel = band(a, 0.09, fa) * mix(0.5, step(fract(along / 9.0), 0.5), dash);
+      let dash = (1.0 - smoothstep(0.0, 1.0, fl * 0.3));
+      let tot = max(I.q.z, 1.0);
+      mark = band(abs(a - (half - 0.5)), 0.07, fa);
+      if (I.q.w < 0.5) {
+        let per = max(floor(tot * 0.5), 1.0); let lw = (I.q.y - 1.0) / (2.0 * per);
+        if (per > 1.5 || I.q.y > 8.0) { yel = band(abs(a - 0.2), 0.08, fa); }
+        else { yel = band(a, 0.08, fa) * mix(0.5, step(fract(along / 9.0), 0.5), dash); }
+        if (per > 1.5) {
+          let k = a / lw;
+          if (k > 1.5 && k < per - 0.5 + 1.0) { mark = max(mark, band(abs(a - floor(k + 0.5) * lw), 0.07, fa) * mix(0.45, step(fract(along / 12.0), 0.45), dash)); }
+        }
+      } else if (tot > 1.5) {
+        let lw = (I.q.y - 1.0) / tot; let k = across / lw + tot * 0.5;
+        if (k > 0.5 && k < tot - 0.5) { mark = max(mark, band(abs(across - (floor(k + 0.5) - tot * 0.5) * lw), 0.07, fa) * mix(0.45, step(fract(along / 12.0), 0.45), dash)); }
+      }
     }
-    mark = max(mark, band(abs(a - (half - 0.55)), 0.08, fa));
-  } else {
-    let lx = w.x - cx; let lz = w.z - cz;
-    let inX = I.q.y * 0.5 - abs(lx); let inZ = I.q.z * 0.5 - abs(lz);
-    let fs = max(fwidth(lx), fwidth(lz));
-    let st = mix(0.5, 1.0, 1.0 - smoothstep(0.2, 0.6, fs));
-    if (inX > 0.6 && inX < 3.6 && inZ > 1.0) { mark = mix(0.5, step(fract(lz / 1.1), 0.5), st); }
-    if (inZ > 0.6 && inZ < 3.6 && inX > 1.0) { mark = mix(0.5, step(fract(lx / 1.1), 0.5), st); }
   }
   let worn = 0.55 + 0.45 * vnoise(w.xz * 0.9);
   alb = mix(alb, vec3f(0.42), mark * worn);
@@ -441,7 +400,7 @@ struct PO {
   switch u32(I.p.x + 0.5) {
     case 1u: { col = shadeBuilding(I, i.w, n, i.lp, V); }
     case 2u: { col = I.col.rgb * I.col.a * i.em; }
-    case 3u: { col = shadeRoad(I, i.w, n, i.pos.xy, V); }
+    case 3u: { col = shadeRoad(I, i.w, n, i.pos.xy, V, i.lp); }
     case 4u: { col = shadeSidewalk(i.w, n, i.pos.xy, V); }
     case 5u: {
       let alb = I.col.rgb * (0.55 + 0.8 * vnoise(i.w.xz * 0.8 + vec2f(i.w.y * 0.7)));
@@ -502,7 +461,7 @@ fn suburbLights(w: vec3f) -> vec3f {
 }
 @fragment fn fs_ground(i: GO) -> @location(0) vec4f {
   let w = i.w;
-  if (abs(w.z - riverZ(w.x)) < RIVER_HW + 1.0) { discard; }
+  if (u.p1.x > 0.5) { discard; }   // the ground itself is never mirrored
   let V = normalize(w - u.cam.xyz);
   let n = vec3f(0.0, 1.0, 0.0);
   let uv = w.xz / (2.0 * WORLD) + 0.5;
@@ -514,7 +473,9 @@ fn suburbLights(w: vec3f) -> vec3f {
   }
   let L = lightAt(w);
   var alb: vec3f;
-  if (ty == 2u) { alb = mix(vec3f(0.035, 0.06, 0.028) * (0.6 + 0.8 * fbm(w.xz * 0.15)), vec3f(0.1, 0.09, 0.075), path); }
+  if (ty == 2u || ty == 8u) { alb = mix(vec3f(0.035, 0.06, 0.028) * (0.6 + 0.8 * fbm(w.xz * 0.15)), vec3f(0.1, 0.09, 0.075), path); }
+  else if (ty == 3u) { alb = vec3f(0.07, 0.068, 0.064) * (0.7 + 0.6 * fbm(w.xz * 0.3)); }
+  else if (ty == 5u) { alb = vec3f(0.05, 0.045, 0.025) * (0.6 + 0.8 * fbm(w.xz * 0.05)); }
   else if (ty == 6u) {
     let g = fract(w.xz / 2.0); let e = min(min(g.x, 1.0 - g.x), min(g.y, 1.0 - g.y));
     alb = vec3f(0.11, 0.1, 0.095) * mix(0.7, 1.0, smoothstep(0.0, 0.05, e));
@@ -526,10 +487,6 @@ fn suburbLights(w: vec3f) -> vec3f {
   if (ty == 7u) { c += suburbLights(w); }
   return vec4f(applyFog(c, w), 1.0);
 }
-@fragment fn fs_water(i: GO) -> @location(0) vec4f {
-  return vec4f(applyFog(waterColor(i.w, normalize(i.w - u.cam.xyz), i.pos.xy), i.w), 1.0);
-}
-
 // ---------- sky ----------
 struct FO { @builtin(position) pos: vec4f, @location(0) ndc: vec2f };
 @vertex fn vs_full(@builtin(vertex_index) vi: u32) -> FO {

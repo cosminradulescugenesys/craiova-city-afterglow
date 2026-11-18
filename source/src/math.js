@@ -200,3 +200,18 @@ function quadMesh(x0, z0, x1, z1, y) {
   m.tri(a, b, c); m.tri(a, c, d);
   return m.done();
 }
+// a gable roof: ridge along x at y = 0.5, eaves at y = -0.5 on both long sides, open underneath
+function prismMesh() {
+  const m = meshBuilder();
+  const sl = 1 / Math.hypot(1, 0.5), sn = 0.5 * sl;
+  for (const s of [-1, 1]) {
+    const n = [0, sn, s * sl];
+    const a = m.vert([-0.5, -0.5, s * 0.5], n), b = m.vert([0.5, -0.5, s * 0.5], n), c = m.vert([0.5, 0.5, 0], n), d = m.vert([-0.5, 0.5, 0], n);
+    m.tri(a, b, c); m.tri(a, c, d);
+  }
+  for (const s of [-1, 1]) {
+    const n = [s, 0, 0];
+    m.tri(m.vert([s * 0.5, -0.5, -0.5], n), m.vert([s * 0.5, -0.5, 0.5], n), m.vert([s * 0.5, 0.5, 0], n));
+  }
+  return m.done();
+}
