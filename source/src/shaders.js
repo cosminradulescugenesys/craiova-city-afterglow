@@ -209,7 +209,6 @@ fn shadeBuilding(I: Inst, w: vec3f, n: vec3f, lp: vec3f, V: vec3f) -> vec3f {
   switch style { case 1u: { wy = 0.84; } case 2u: { wy = 0.5; } case 3u: { wy = 0.45; } case 4u: { wy = 0.78; } default: {} }
 
   var wallC = wall * (0.85 + 0.3 * vnoise(vec2f(uC * 0.15 + f32(face) * 13.0, w.y * 0.08)));
-  wallC *= mix(0.72, 1.0, smoothstep(0.0, 0.16, fy)) * mix(0.9, 1.0, smoothstep(0.0, 0.1, min(fx, 1.0 - fx)));   // ledges and piers
   wallC *= mix(0.45, 1.0, smoothstep(0.0, 8.0, w.y)) * light;
   let cosv = clamp(-dot(V, n), 0.0, 1.0);
   let fr = fresnel(cosv);

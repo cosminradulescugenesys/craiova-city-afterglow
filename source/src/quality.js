@@ -9,11 +9,11 @@ const LEVELS = {
   },
   medium: {
     name: 'Medium', msaa: 4, scale: 0.85, minScale: 0.5, reflections: true, bloomLevels: 5,
-    carGap: 80, carCap: 3500, lampStep: 40, trees: 0.7, rainDrops: 9000, details: 0.75, maxDpr: 1.5,
+    carGap: 80, carCap: 4500, lampStep: 40, trees: 0.7, rainDrops: 9000, details: 0.75, maxDpr: 1.5,
   },
   high: {
     name: 'High', msaa: 4, scale: 1, minScale: 0.5, reflections: true, bloomLevels: 6,
-    carGap: 46, carCap: 6500, lampStep: 30, trees: 1, rainDrops: 16000, details: 1, maxDpr: 2,
+    carGap: 46, carCap: 9000, lampStep: 30, trees: 1, rainDrops: 16000, details: 1, maxDpr: 2,
   },
 };
 const LEVEL_ORDER = ['low', 'medium', 'high'];
