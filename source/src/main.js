@@ -39,15 +39,52 @@ const TIMES = {
     amb: [0.07, 0.07, 0.1], glow: [0.45, 0.33, 0.3], lit: 0.16, fog: 0.0006, stars: 0.05, exposure: 0.9, beams: 0,
   },
 };
-const TIME_ORDER = ['dusk', 'night', 'dawn'];
+TIMES.day = {
+  label: 'Day', skyTop: [0.16, 0.34, 0.72], skyHor: [0.62, 0.72, 0.86], sunDir: norm([0.35, 0.72, -0.5]), sunCol: [2.6, 2.3, 1.9],
+  amb: [0.26, 0.3, 0.4], glow: [0.12, 0.12, 0.12], lit: 0.03, fog: 0.00028, stars: 0, exposure: 0.55, beams: 0,
+};
+// 'live' follows the real sun over Craiova; the others are fixed
+const TIME_ORDER = ['live', 'day', 'dusk', 'night', 'dawn'];
+const WEATHER_ORDER = ['live', 'clear', 'rain'];
+const CRAIOVA = { lat: 44.3125, lon: 23.804 };
+// elevation of the sun over Craiova right now (degrees), and whether it is before noon
+function sunNow(date = new Date()) {
+  const rad = Math.PI / 180, d = date.getTime() / 86400000 + 2440587.5 - 2451545;
+  const g = (357.529 + 0.98560028 * d) * rad, L = (280.459 + 0.98564736 * d + 1.915 * Math.sin(g) + 0.02 * Math.sin(2 * g)) * rad;
+  const e = 23.439 * rad, ra = Math.atan2(Math.cos(e) * Math.sin(L), Math.cos(L)), dec = Math.asin(Math.sin(e) * Math.sin(L));
+  const ha = (18.697374558 + 24.06570982441908 * d) * 15 * rad + CRAIOVA.lon * rad - ra, lat = CRAIOVA.lat * rad;
+  const elev = Math.asin(Math.sin(lat) * Math.sin(dec) + Math.cos(lat) * Math.cos(dec) * Math.cos(ha)) / rad;
+  return { elev, morning: Math.sin(ha) < 0 };
+}
+function liveTime() {
+  const { elev, morning } = sunNow();
+  return elev > 6 ? 'day' : elev > -5 ? (morning ? 'dawn' : 'dusk') : 'night';
+}
+const craiovaClock = () => new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Bucharest' }).format(new Date());
 const VEC = ['skyTop', 'skyHor', 'sunDir', 'sunCol', 'amb', 'glow'], SCAL = ['lit', 'fog', 'stars', 'exposure', 'beams'];
-let timeKey = TIMES[prefs.time] ? prefs.time : 'dusk';
-let raining = !!prefs.rain;
+// every visit starts on live time and live weather; a choice made in the menu only lasts until the page is closed
+let timeKey = 'live';
+let weatherMode = 'live';
+let liveRain = false, liveTemp = null;
+const activeTime = () => (timeKey === 'live' ? liveTime() : timeKey);
+const isRaining = () => (weatherMode === 'live' ? liveRain : weatherMode === 'rain');
+let raining = isRaining();
 const env = { rain: raining ? 1 : 0, wet: raining ? 1 : 0 };
-for (const k of VEC) env[k] = [...TIMES[timeKey][k]];
-for (const k of SCAL) env[k] = TIMES[timeKey][k];
+for (const k of VEC) env[k] = [...TIMES[activeTime()][k]];
+for (const k of SCAL) env[k] = TIMES[activeTime()][k];
+// the weather in Craiova right now, from Open-Meteo (free, no key; only the coordinates of Craiova are sent). If it cannot be reached it stays clear.
+async function fetchWeather() {
+  try {
+    const r = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${CRAIOVA.lat}&longitude=${CRAIOVA.lon}&current=temperature_2m,weather_code,precipitation`, { cache: 'no-store' });
+    const c = (await r.json()).current, code = c.weather_code;
+    liveRain = c.precipitation > 0.05 || (code >= 51 && code <= 67) || (code >= 80 && code <= 82) || code >= 95;
+    liveTemp = Math.round(c.temperature_2m);
+    updateMenuButtons();
+  } catch { /* offline: the live weather stays clear */ }
+}
 function stepEnv(dt) {
-  const T = TIMES[timeKey], k = 1 - Math.exp(-dt * 1.3);
+  const T = TIMES[activeTime()], k = 1 - Math.exp(-dt * 1.3);
+  raining = isRaining();
   for (const key of VEC) for (let i = 0; i < 3; i++) env[key][i] += (T[key][i] - env[key][i]) * k;
   env.sunDir = norm(env.sunDir);
   for (const key of SCAL) env[key] += (T[key] - env[key]) * k;
@@ -136,16 +173,22 @@ function toast(msg) {
 }
 function updateMenuButtons() {
   [...$('t').querySelectorAll('button')].forEach((b, i) => b.classList.toggle('on', TIME_ORDER[i] === timeKey));
-  [...$('r').querySelectorAll('button')].forEach((b, i) => b.classList.toggle('on', (i === 1) === raining));
+  [...$('r').querySelectorAll('button')].forEach((b, i) => b.classList.toggle('on', WEATHER_ORDER[i] === weatherMode));
+  $('t').firstElementChild.textContent = timeKey === 'live' ? `Time · ${craiovaClock()}` : 'Time';
+  $('r').firstElementChild.textContent = weatherMode === 'live' ? `Weather · ${liveRain ? 'rain' : 'clear'}${liveTemp === null ? '' : ' ' + liveTemp + '°'}` : 'Weather';
 }
-function setTime(k) { timeKey = k; const p = loadPrefs(); p.time = k; savePrefs(p); updateMenuButtons(); }
-function setRain(on) { raining = on; const p = loadPrefs(); p.rain = on; savePrefs(p); updateMenuButtons(); }
+function setTime(k) { timeKey = k; updateMenuButtons(); }
+function setWeather(m) { weatherMode = m; updateMenuButtons(); }
 function setSound(on) { soundOn = on; audio.setEnabled(on); const p = loadPrefs(); p.sound = on; savePrefs(p); }
 [...$('t').querySelectorAll('button')].forEach((b, i) => { b.onclick = () => setTime(TIME_ORDER[i]); });
-[...$('r').querySelectorAll('button')].forEach((b, i) => { b.onclick = () => setRain(i === 1); });
+[...$('r').querySelectorAll('button')].forEach((b, i) => { b.onclick = () => setWeather(WEATHER_ORDER[i]); });
 updateMenuButtons();
+fetchWeather();
+setInterval(fetchWeather, 600000);
+setInterval(updateMenuButtons, 30000);
 
 function enter() {
+  if (!entered) { lookAt(world.start.pos, world.start.at); collide(cam.pos); }
   entered = true; playing = true;
   setState('g');
   $('d').textContent = 'Resume';
@@ -180,8 +223,8 @@ addEventListener('keydown', (e) => {
   if (n) { const v = world.views[+n[1] - 1]; lookAt(v.pos, v.at); collide(cam.pos); toast(v.name); }
   if (e.code === 'KeyM') { setSound(!soundOn); toast(soundOn ? 'Sound on' : 'Sound off'); }
   if (e.code === 'KeyH') { showStats = !showStats; $('i').hidden = !showStats; }
-  if (e.code === 'KeyT') { setTime(TIME_ORDER[(TIME_ORDER.indexOf(timeKey) + 1) % 3]); toast(TIMES[timeKey].label); }
-  if (e.code === 'KeyR') { setRain(!raining); toast(raining ? 'Rain' : 'Clear sky'); }
+  if (e.code === 'KeyT') { setTime(TIME_ORDER[(TIME_ORDER.indexOf(timeKey) + 1) % TIME_ORDER.length]); toast(timeKey === 'live' ? `Craiova now: ${TIMES[activeTime()].label}` : TIMES[timeKey].label); }
+  if (e.code === 'KeyR') { setWeather(WEATHER_ORDER[(WEATHER_ORDER.indexOf(weatherMode) + 1) % WEATHER_ORDER.length]); toast(weatherMode === 'live' ? `Craiova now: ${liveRain ? 'rain' : 'clear sky'}` : weatherMode === 'rain' ? 'Rain' : 'Clear sky'); }
 });
 addEventListener('keyup', (e) => keys.delete(e.code));
 addEventListener('blur', () => keys.clear());

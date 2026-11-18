@@ -73,16 +73,16 @@ fn carPose(q: vec4f, phase: f32, t: f32) -> Pose {
   var P: Pose;
   P.pos = vec3f(q.x + cos(ang) * s, ROADY, q.y + sin(ang) * s);
   P.yaw = -ang;
-  P.fade = max(0.001, smoothstep(0.0, 9.0, s) * smoothstep(0.0, 9.0, q.w - s));
+  P.fade = max(0.001, smoothstep(0.0, 5.0, s) * smoothstep(0.0, 5.0, q.w - s));
   return P;
 }
 struct AR { w: vec3f, n: vec3f, em: f32 };
 fn animate(I: Inst, w0: vec3f, n0: vec3f, t: f32) -> AR {
   var r: AR; r.w = w0; r.n = n0; r.em = 1.0;
   let a = u32(I.p.y + 0.5);
-  if (a == 1u) {          // vehicle: drives its stretch of road, shrinking away at both ends
+  if (a == 1u) {          // vehicle: drives its stretch of road, shrinking away about its middle at both ends, never sinking into the road
     let P = carPose(I.q, I.p.w, t);
-    r.w = P.pos + rotY(w0 * P.fade, P.yaw); r.n = rotY(n0, P.yaw);
+    r.w = P.pos + rotY(vec3f(w0.x * P.fade, (w0.y - 1.0) * P.fade + 1.0, w0.z * P.fade), P.yaw); r.n = rotY(n0, P.yaw);
   } else if (a == 5u) {   // aircraft warning light
     r.em = select(0.0, 1.0, fract(t * 0.55 + I.p.w) < 0.14);
   }

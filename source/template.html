@@ -2,18 +2,18 @@
 <html lang=en>
 <head>
 <meta charset=utf-8>
-<title>Craiova Afterglow</title>
+<title>Craiova</title>
 <meta name=viewport content="width=device-width,initial-scale=1">
-<meta name=theme-color content=#0c0818>
+<meta name=theme-color content=#07101c>
 <style>
 /* Page structure adapted from Abyssal Garden (https://github.com/Noniv/abyssal-garden), MIT, (c) 2026 Maksymilian Dendura */
 /* The class on <body> is the state of the page:
    l = loading, m = menu, g = in the city (g p while the mouse is captured), l e = failed to start */
-html { background: #0c0818; }
+html { background: #07101c; }
 body {
   position: fixed; inset: 0; margin: 0; overflow: hidden;
-  background: radial-gradient(120% 90% at 50% 110%, #5a2a3a, #1b1030 55%, #0c0818);
-  font: 600 clamp(13px, .65vw + .85vh, 34px)/1.4 system-ui, sans-serif; color: #fbeef0;
+  background: radial-gradient(120% 90% at 50% 110%, #1d4466, #0e2038 55%, #07101c);
+  font: 600 clamp(13px, .65vw + .85vh, 34px)/1.4 system-ui, sans-serif; color: #eef7ff;
   -webkit-user-select: none; user-select: none;
 }
 /* the city keeps running behind the menu, blurred, and comes into focus when you enter */
@@ -26,24 +26,24 @@ body:not(.g) canvas { filter: blur(.8vmax) brightness(.55) saturate(1.2); transf
 
 #m {
   position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: min(2em, 5vmin);
-  padding: 1em 1em 4em; text-align: center; background: radial-gradient(#0c081800 30%, #0c0818c0);
+  padding: 1em 1em 4em; text-align: center; background: radial-gradient(#07101c00 30%, #07101cc0);
   transition: opacity .5s, visibility .5s;
 }
 .g #m, .m #l, .l #g { opacity: 0; visibility: hidden; }
 h1 {
   margin: 0; font: 900 4.2em/1 system-ui, sans-serif; letter-spacing: .06em; text-transform: uppercase;
-  color: #0000; background: linear-gradient(#fff6e8 20%, #ffb37a 55%, #ff5f8f 85%);
-  -webkit-background-clip: text; background-clip: text; filter: drop-shadow(0 .05em .25em #ff5f8f66);
+  color: #0000; background: linear-gradient(#f2faff 20%, #8fd0ff 55%, #4aa8f0 85%);
+  -webkit-background-clip: text; background-clip: text; filter: drop-shadow(0 .05em .25em #4aa8f066);
 }
-h1 + p { margin-top: -.8em; font-size: .85em; letter-spacing: .3em; text-transform: uppercase; color: #ffcfb3; opacity: .85; }
+h1 + p { margin-top: -.8em; font-size: .85em; letter-spacing: .3em; text-transform: uppercase; color: #bfe3ff; opacity: .85; }
 p { margin: 0; }
 #a { display: grid; width: 30em; max-width: 100%; }
 #a > * { grid-area: 1/1; transition: opacity .8s, visibility .8s; }
 #s, #w, .row span, #k, #h { font-size: .8em; letter-spacing: .12em; text-transform: uppercase; }
-#w { margin-top: 1.2em; color: #ffb37a; }
+#w { margin-top: 1.2em; color: #8fd0ff; }
 
-#p { height: .5em; margin: .4em 0 1em; overflow: hidden; border-radius: 1em; background: #0c0818; box-shadow: 0 0 0 2px #ffb37a80, 0 0 1.5em #ff5f8f88; }
-#b { display: block; height: 100%; background: linear-gradient(90deg, #ff5f8f, #ffd29a); transform: scaleX(0); transform-origin: 0; will-change: transform; }
+#p { height: .5em; margin: .4em 0 1em; overflow: hidden; border-radius: 1em; background: #07101c; box-shadow: 0 0 0 2px #8fd0ff80, 0 0 1.5em #4aa8f088; }
+#b { display: block; height: 100%; background: linear-gradient(90deg, #4aa8f0, #cfeaff); transform: scaleX(0); transform-origin: 0; will-change: transform; }
 .e #p { visibility: hidden; }
 .e #s { font-size: 1.1em; letter-spacing: 0; text-transform: none; }
 
@@ -51,49 +51,51 @@ button, a {
   display: flex; align-items: center; justify-content: center; gap: .6em; padding: .8em 1.4em; border: 0;
   border-radius: .5em; background: #fff; box-shadow: inset 0 -.2em #0003, 0 .3em 1em #0009;
   font: 800 1em/1.2 system-ui, sans-serif; letter-spacing: .12em; text-transform: uppercase; text-decoration: none;
-  color: #2a1020; cursor: pointer; transition: transform .12s, filter .12s;
+  color: #08213a; cursor: pointer; transition: transform .12s, filter .12s;
 }
 button:hover, a:hover { transform: translateY(-.12em); filter: brightness(1.12); }
 button:active { transform: translateY(.1em); filter: brightness(.9); }
 :focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
 #g { display: grid; gap: min(1em, 3vmin); }
-#d { padding: .9em; background: linear-gradient(#ffd29a, #ff7a8a); font-size: 1.3em; box-shadow: inset 0 -.2em #0003, 0 0 2em #ff5f8fa0; }
+#d { padding: .9em; background: linear-gradient(#cfeaff, #6fbaf5); font-size: 1.3em; box-shadow: inset 0 -.2em #0003, 0 0 2em #4aa8f0a0; }
 
 /* rows of choices: detail, time of day, weather; the current one is lit */
-.row { display: flex; align-items: center; gap: .4em; padding: .35em; border-radius: .7em; background: #0c0818b8; }
-.row span { flex: 1; color: #ffb37a; }
-.row button { flex: 1.2; padding: .65em 0; background: none; box-shadow: none; color: #fbeef0; }
-.row button:hover { background: #ffb37a30; }
-.row .on { background: linear-gradient(#ffd29a, #ff7a8a); box-shadow: inset 0 -.2em #0003; color: #2a1020; pointer-events: none; }
+.row { display: flex; align-items: center; gap: .4em; padding: .35em; border-radius: .7em; background: #07101cb8; }
+.row span { flex: 1; color: #8fd0ff; white-space: nowrap; }
+#t span, #r span { flex: 1.9; }
+#t button, #r button { flex: 1; }
+.row button { flex: 1.2; padding: .65em 0; background: none; box-shadow: none; color: #eef7ff; }
+.row button:hover { background: #8fd0ff30; }
+.row .on { background: linear-gradient(#cfeaff, #6fbaf5); box-shadow: inset 0 -.2em #0003; color: #08213a; pointer-events: none; }
 
-#k, #h { padding: 1em 1.6em; border-radius: .7em; background: #0c0818b8; }
+#k, #h { padding: 1em 1.6em; border-radius: .7em; background: #07101cb8; }
 #k { display: flex; justify-content: center; gap: 2em; text-align: left; }
 #k p { display: grid; grid-template-columns: auto auto; align-content: start; align-items: center; gap: .5em .9em; }
-#k p + p { padding-left: 2em; border-left: 2px solid #ffb37a40; }
+#k p + p { padding-left: 2em; border-left: 2px solid #8fd0ff40; }
 #k i { display: flex; justify-self: end; align-items: center; gap: .25em; font-style: normal; }
-#k b { min-width: 1.1em; padding: .2em .5em; border-radius: .35em; background: #fbeef0; box-shadow: inset 0 -.15em #0004; color: #2a1020; text-align: center; }
+#k b { min-width: 1.1em; padding: .2em .5em; border-radius: .35em; background: #eef7ff; box-shadow: inset 0 -.15em #0004; color: #08213a; text-align: center; }
 #h { display: none; }
 @media (pointer: coarse), (max-height: 34em) { #k { display: none; } }
 @media (pointer: coarse) { #h { display: block; } }
 
 #f { position: absolute; left: 0; right: 0; bottom: 1.4em; font-size: .75em; letter-spacing: .08em; opacity: .7; }
-#f a { display: inline; padding: 0; background: none; box-shadow: none; color: #ffcfb3; font: inherit; text-transform: none; letter-spacing: inherit; text-decoration: underline; }
+#f a { display: inline; padding: 0; background: none; box-shadow: none; color: #bfe3ff; font: inherit; text-transform: none; letter-spacing: inherit; text-decoration: underline; }
 
 #o {
-  position: absolute; top: .6em; right: .6em; display: none; padding: .3em .6em; background: #2a1020d9;
-  box-shadow: inset 0 0 0 2px #ffb37a, 0 .3em 1em #0009; font-size: 1.3em; color: #fbeef0; opacity: .8;
+  position: absolute; top: .6em; right: .6em; display: none; padding: .3em .6em; background: #08213ad9;
+  box-shadow: inset 0 0 0 2px #8fd0ff, 0 .3em 1em #0009; font-size: 1.3em; color: #eef7ff; opacity: .8;
 }
 .g #o { display: flex; }
 .p #o { display: none; }
 #i { position: absolute; top: 1em; left: 1.2em; margin: 0; font: .8em/1.6 ui-monospace, Consolas, monospace; white-space: pre-wrap; text-shadow: 0 1px 4px #000; pointer-events: none; }
 #n {
   position: absolute; left: 1.4em; bottom: 1.2em; margin: 0; font-size: .85em; letter-spacing: .18em; text-transform: uppercase;
-  color: #ffd8bd; text-shadow: 0 1px 6px #000; pointer-events: none;
+  color: #d4ecff; text-shadow: 0 1px 6px #000; pointer-events: none;
 }
 body:not(.g) #n { display: none; }
 #v {
   position: absolute; left: 50%; bottom: 8%; transform: translate(-50%, .5em); padding: .5em 1.2em; border-radius: 2em;
-  background: #0c0818b0; font-size: .9em; letter-spacing: .2em; text-transform: uppercase; color: #ffd8bd;
+  background: #07101cb0; font-size: .9em; letter-spacing: .2em; text-transform: uppercase; color: #d4ecff;
   opacity: 0; transition: opacity .4s, transform .4s; pointer-events: none;
 }
 #v.on { opacity: 1; transform: translate(-50%, 0); }
@@ -103,14 +105,14 @@ body:not(.g) #v { display: none; }
 <body class=l>
 <canvas id=c></canvas>
 <div id=m>
-  <h1>Craiova Afterglow</h1>
+  <h1>Craiova</h1>
   <p>the real Craiova at dusk, built from OpenStreetMap and flown in your browser</p>
   <div id=a>
     <div id=l><div id=p><i id=b></i></div><p id=s>Waking Craiova…</p><p id=w hidden>Use Chrome or Edge for the best experience</p></div>
     <div id=g>
       <button id=d>Enter the city</button>
-      <p class=row id=t><span>Time</span><button>Dusk</button><button>Night</button><button>Dawn</button></p>
-      <p class=row id=r><span>Weather</span><button>Clear</button><button>Rain</button></p>
+      <p class=row id=t><span>Time</span><button>Live</button><button>Day</button><button>Dusk</button><button>Night</button><button>Dawn</button></p>
+      <p class=row id=r><span>Weather</span><button>Live</button><button>Clear</button><button>Rain</button></p>
       <p class=row id=q><span>Detail</span><button>Low</button><button>Medium</button><button>High</button></p>
       <div id=k>
         <p>
@@ -130,7 +132,7 @@ body:not(.g) #v { display: none; }
       <p id=h>Hold to fly forward · slide to steer · second finger to go faster</p>
     </div>
   </div>
-  <p id=f>Map data © <a href=https://www.openstreetmap.org/copyright target=_blank rel=noopener>OpenStreetMap contributors</a> · based on <a href=https://github.com/J-o-h-n-M/afterglow-city target=_blank rel=noopener>Afterglow City</a> and <a href=https://github.com/Noniv/abyssal-garden target=_blank rel=noopener>Abyssal Garden</a></p>
+  <p id=f>Map data © <a href=https://www.openstreetmap.org/copyright target=_blank rel=noopener>OpenStreetMap contributors</a> · based on <a href=https://github.com/J-o-h-n-M/afterglow-city target=_blank rel=noopener>John's WebGPU city</a> and <a href=https://github.com/Noniv/abyssal-garden target=_blank rel=noopener>Abyssal Garden</a></p>
 </div>
 <button id=o aria-label=Menu>≡</button>
 <p id=v></p>

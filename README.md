@@ -1,12 +1,12 @@
-# Craiova Afterglow
+# Craiova
 
 **The real Craiova at dusk, flown in your browser.** About 27,000 buildings, 5,700 streets, the park lakes, the railway and
 the tram lines of the actual city, built from OpenStreetMap data and drawn with raw WebGPU in **one ~700 KB HTML file**:
 no images, no 3D models, no sound files.
 
-> A rebuild of [Afterglow City](https://github.com/J-o-h-n-M/afterglow-city) by John (MIT), which in turn is based on
+> A rebuild of [an open-source WebGPU city](https://github.com/J-o-h-n-M/afterglow-city) by John (MIT), which in turn is based on
 > [Abyssal Garden](https://github.com/Noniv/abyssal-garden) by Maksymilian Dendura. The renderer, shaders, soundscape and menu come
-> from Afterglow City; the invented street grid and skyline are replaced by Craiova. See [Credits](#credits).
+> from that project; the invented street grid and skyline are replaced by Craiova. See [Credits](#credits).
 
 ## Try it
 
@@ -25,7 +25,8 @@ the folder (`python3 -m http.server`) and open `http://localhost:8000`.
 - **The railway** with trains, and **trams** on the tram lines
 - A **label** of the street and neighbourhood under you, and viewpoints on `1`–`6`: Piața Mihai Viteazul, the old centre from above,
   Parcul Romanescu, Stadionul Ion Oblemenco, Gara Craiova, Electroputere and Ford
-- Dusk, night and dawn, rain that soaks the streets, and a soundscape made up as you listen
+- **Live time and weather by default**: the sky follows the real sun over Craiova and it rains when it rains there (weather from Open-Meteo; offline it stays clear). You can also pick Day, Dusk, Night or Dawn and Clear or Rain in the menu
+- A soundscape made up as you listen
 
 The Jiu does not flow through Craiova (it passes several kilometres to the west, outside the map), so unlike in the original city
 there is no river: the water is the park lakes and ponds.
@@ -39,8 +40,8 @@ there is no river: the water is the park lakes and ponds.
 | Down / up | `Q` / `E` |
 | Faster | Hold `Shift` |
 | Jump to a viewpoint | `1` to `6` |
-| Time of day | `T` (dusk → night → dawn) |
-| Rain on / off | `R` |
+| Time of day | `T` (live → day → dusk → night → dawn) |
+| Weather | `R` (live → clear → rain) |
 | Menu | `Esc` |
 | Sound on / off | `M` |
 | Performance stats | `H` |
@@ -80,10 +81,10 @@ node tools/build-data.mjs    # buildings -> boxes, roads, rails, parks, lakes, p
 
 - Map data © [OpenStreetMap contributors](https://www.openstreetmap.org/copyright), available under the
   [Open Database Licence](https://opendatacommons.org/licenses/odbl/). `source/src/data.js` is a derived extract of it.
-- [Afterglow City](https://github.com/J-o-h-n-M/afterglow-city) by John (MIT): renderer, shaders, audio, menu and build script,
+- [John's open-source WebGPU city](https://github.com/J-o-h-n-M/afterglow-city) (MIT): renderer, shaders, audio, menu and build script,
   adapted here for arbitrary street directions, real footprints and a lake-based ground.
 - [Abyssal Garden](https://github.com/Noniv/abyssal-garden) by Maksymilian Dendura (MIT), the origin of the single-file WebGPU approach.
 
 ## License
 
-Code: [MIT](LICENSE), carrying the notices of Afterglow City and Abyssal Garden. Map data: ODbL, see above.
+Code: [MIT](LICENSE), carrying the notices of that project and Abyssal Garden. Map data: ODbL, see above.

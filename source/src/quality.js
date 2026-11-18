@@ -17,7 +17,7 @@ const LEVELS = {
   },
 };
 const LEVEL_ORDER = ['low', 'medium', 'high'];
-const STORE_KEY = 'craiova-afterglow';
+const STORE_KEY = 'craiova-city';
 
 function loadPrefs() {
   try { return JSON.parse(localStorage.getItem(STORE_KEY)) || {}; } catch { return {}; }

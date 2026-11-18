@@ -2,18 +2,18 @@
 <html lang=en>
 <head>
 <meta charset=utf-8>
-<title>Craiova Afterglow</title>
+<title>Craiova</title>
 <meta name=viewport content="width=device-width,initial-scale=1">
-<meta name=theme-color content=#0c0818>
+<meta name=theme-color content=#07101c>
 <style>
 /* Page structure adapted from Abyssal Garden (https://github.com/Noniv/abyssal-garden), MIT, (c) 2026 Maksymilian Dendura */
 /* The class on <body> is the state of the page:
    l = loading, m = menu, g = in the city (g p while the mouse is captured), l e = failed to start */
-html { background: #0c0818; }
+html { background: #07101c; }
 body {
   position: fixed; inset: 0; margin: 0; overflow: hidden;
-  background: radial-gradient(120% 90% at 50% 110%, #5a2a3a, #1b1030 55%, #0c0818);
-  font: 600 clamp(13px, .65vw + .85vh, 34px)/1.4 system-ui, sans-serif; color: #fbeef0;
+  background: radial-gradient(120% 90% at 50% 110%, #1d4466, #0e2038 55%, #07101c);
+  font: 600 clamp(13px, .65vw + .85vh, 34px)/1.4 system-ui, sans-serif; color: #eef7ff;
   -webkit-user-select: none; user-select: none;
 }
 /* the city keeps running behind the menu, blurred, and comes into focus when you enter */
@@ -26,24 +26,24 @@ body:not(.g) canvas { filter: blur(.8vmax) brightness(.55) saturate(1.2); transf
 
 #m {
   position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: min(2em, 5vmin);
-  padding: 1em 1em 4em; text-align: center; background: radial-gradient(#0c081800 30%, #0c0818c0);
+  padding: 1em 1em 4em; text-align: center; background: radial-gradient(#07101c00 30%, #07101cc0);
   transition: opacity .5s, visibility .5s;
 }
 .g #m, .m #l, .l #g { opacity: 0; visibility: hidden; }
 h1 {
   margin: 0; font: 900 4.2em/1 system-ui, sans-serif; letter-spacing: .06em; text-transform: uppercase;
-  color: #0000; background: linear-gradient(#fff6e8 20%, #ffb37a 55%, #ff5f8f 85%);
-  -webkit-background-clip: text; background-clip: text; filter: drop-shadow(0 .05em .25em #ff5f8f66);
+  color: #0000; background: linear-gradient(#f2faff 20%, #8fd0ff 55%, #4aa8f0 85%);
+  -webkit-background-clip: text; background-clip: text; filter: drop-shadow(0 .05em .25em #4aa8f066);
 }
-h1 + p { margin-top: -.8em; font-size: .85em; letter-spacing: .3em; text-transform: uppercase; color: #ffcfb3; opacity: .85; }
+h1 + p { margin-top: -.8em; font-size: .85em; letter-spacing: .3em; text-transform: uppercase; color: #bfe3ff; opacity: .85; }
 p { margin: 0; }
 #a { display: grid; width: 30em; max-width: 100%; }
 #a > * { grid-area: 1/1; transition: opacity .8s, visibility .8s; }
 #s, #w, .row span, #k, #h { font-size: .8em; letter-spacing: .12em; text-transform: uppercase; }
-#w { margin-top: 1.2em; color: #ffb37a; }
+#w { margin-top: 1.2em; color: #8fd0ff; }
 
-#p { height: .5em; margin: .4em 0 1em; overflow: hidden; border-radius: 1em; background: #0c0818; box-shadow: 0 0 0 2px #ffb37a80, 0 0 1.5em #ff5f8f88; }
-#b { display: block; height: 100%; background: linear-gradient(90deg, #ff5f8f, #ffd29a); transform: scaleX(0); transform-origin: 0; will-change: transform; }
+#p { height: .5em; margin: .4em 0 1em; overflow: hidden; border-radius: 1em; background: #07101c; box-shadow: 0 0 0 2px #8fd0ff80, 0 0 1.5em #4aa8f088; }
+#b { display: block; height: 100%; background: linear-gradient(90deg, #4aa8f0, #cfeaff); transform: scaleX(0); transform-origin: 0; will-change: transform; }
 .e #p { visibility: hidden; }
 .e #s { font-size: 1.1em; letter-spacing: 0; text-transform: none; }
 
@@ -51,49 +51,51 @@ button, a {
   display: flex; align-items: center; justify-content: center; gap: .6em; padding: .8em 1.4em; border: 0;
   border-radius: .5em; background: #fff; box-shadow: inset 0 -.2em #0003, 0 .3em 1em #0009;
   font: 800 1em/1.2 system-ui, sans-serif; letter-spacing: .12em; text-transform: uppercase; text-decoration: none;
-  color: #2a1020; cursor: pointer; transition: transform .12s, filter .12s;
+  color: #08213a; cursor: pointer; transition: transform .12s, filter .12s;
 }
 button:hover, a:hover { transform: translateY(-.12em); filter: brightness(1.12); }
 button:active { transform: translateY(.1em); filter: brightness(.9); }
 :focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
 #g { display: grid; gap: min(1em, 3vmin); }
-#d { padding: .9em; background: linear-gradient(#ffd29a, #ff7a8a); font-size: 1.3em; box-shadow: inset 0 -.2em #0003, 0 0 2em #ff5f8fa0; }
+#d { padding: .9em; background: linear-gradient(#cfeaff, #6fbaf5); font-size: 1.3em; box-shadow: inset 0 -.2em #0003, 0 0 2em #4aa8f0a0; }
 
 /* rows of choices: detail, time of day, weather; the current one is lit */
-.row { display: flex; align-items: center; gap: .4em; padding: .35em; border-radius: .7em; background: #0c0818b8; }
-.row span { flex: 1; color: #ffb37a; }
-.row button { flex: 1.2; padding: .65em 0; background: none; box-shadow: none; color: #fbeef0; }
-.row button:hover { background: #ffb37a30; }
-.row .on { background: linear-gradient(#ffd29a, #ff7a8a); box-shadow: inset 0 -.2em #0003; color: #2a1020; pointer-events: none; }
+.row { display: flex; align-items: center; gap: .4em; padding: .35em; border-radius: .7em; background: #07101cb8; }
+.row span { flex: 1; color: #8fd0ff; white-space: nowrap; }
+#t span, #r span { flex: 1.9; }
+#t button, #r button { flex: 1; }
+.row button { flex: 1.2; padding: .65em 0; background: none; box-shadow: none; color: #eef7ff; }
+.row button:hover { background: #8fd0ff30; }
+.row .on { background: linear-gradient(#cfeaff, #6fbaf5); box-shadow: inset 0 -.2em #0003; color: #08213a; pointer-events: none; }
 
-#k, #h { padding: 1em 1.6em; border-radius: .7em; background: #0c0818b8; }
+#k, #h { padding: 1em 1.6em; border-radius: .7em; background: #07101cb8; }
 #k { display: flex; justify-content: center; gap: 2em; text-align: left; }
 #k p { display: grid; grid-template-columns: auto auto; align-content: start; align-items: center; gap: .5em .9em; }
-#k p + p { padding-left: 2em; border-left: 2px solid #ffb37a40; }
+#k p + p { padding-left: 2em; border-left: 2px solid #8fd0ff40; }
 #k i { display: flex; justify-self: end; align-items: center; gap: .25em; font-style: normal; }
-#k b { min-width: 1.1em; padding: .2em .5em; border-radius: .35em; background: #fbeef0; box-shadow: inset 0 -.15em #0004; color: #2a1020; text-align: center; }
+#k b { min-width: 1.1em; padding: .2em .5em; border-radius: .35em; background: #eef7ff; box-shadow: inset 0 -.15em #0004; color: #08213a; text-align: center; }
 #h { display: none; }
 @media (pointer: coarse), (max-height: 34em) { #k { display: none; } }
 @media (pointer: coarse) { #h { display: block; } }
 
 #f { position: absolute; left: 0; right: 0; bottom: 1.4em; font-size: .75em; letter-spacing: .08em; opacity: .7; }
-#f a { display: inline; padding: 0; background: none; box-shadow: none; color: #ffcfb3; font: inherit; text-transform: none; letter-spacing: inherit; text-decoration: underline; }
+#f a { display: inline; padding: 0; background: none; box-shadow: none; color: #bfe3ff; font: inherit; text-transform: none; letter-spacing: inherit; text-decoration: underline; }
 
 #o {
-  position: absolute; top: .6em; right: .6em; display: none; padding: .3em .6em; background: #2a1020d9;
-  box-shadow: inset 0 0 0 2px #ffb37a, 0 .3em 1em #0009; font-size: 1.3em; color: #fbeef0; opacity: .8;
+  position: absolute; top: .6em; right: .6em; display: none; padding: .3em .6em; background: #08213ad9;
+  box-shadow: inset 0 0 0 2px #8fd0ff, 0 .3em 1em #0009; font-size: 1.3em; color: #eef7ff; opacity: .8;
 }
 .g #o { display: flex; }
 .p #o { display: none; }
 #i { position: absolute; top: 1em; left: 1.2em; margin: 0; font: .8em/1.6 ui-monospace, Consolas, monospace; white-space: pre-wrap; text-shadow: 0 1px 4px #000; pointer-events: none; }
 #n {
   position: absolute; left: 1.4em; bottom: 1.2em; margin: 0; font-size: .85em; letter-spacing: .18em; text-transform: uppercase;
-  color: #ffd8bd; text-shadow: 0 1px 6px #000; pointer-events: none;
+  color: #d4ecff; text-shadow: 0 1px 6px #000; pointer-events: none;
 }
 body:not(.g) #n { display: none; }
 #v {
   position: absolute; left: 50%; bottom: 8%; transform: translate(-50%, .5em); padding: .5em 1.2em; border-radius: 2em;
-  background: #0c0818b0; font-size: .9em; letter-spacing: .2em; text-transform: uppercase; color: #ffd8bd;
+  background: #07101cb0; font-size: .9em; letter-spacing: .2em; text-transform: uppercase; color: #d4ecff;
   opacity: 0; transition: opacity .4s, transform .4s; pointer-events: none;
 }
 #v.on { opacity: 1; transform: translate(-50%, 0); }
@@ -103,14 +105,14 @@ body:not(.g) #v { display: none; }
 <body class=l>
 <canvas id=c></canvas>
 <div id=m>
-  <h1>Craiova Afterglow</h1>
+  <h1>Craiova</h1>
   <p>the real Craiova at dusk, built from OpenStreetMap and flown in your browser</p>
   <div id=a>
     <div id=l><div id=p><i id=b></i></div><p id=s>Waking Craiova…</p><p id=w hidden>Use Chrome or Edge for the best experience</p></div>
     <div id=g>
       <button id=d>Enter the city</button>
-      <p class=row id=t><span>Time</span><button>Dusk</button><button>Night</button><button>Dawn</button></p>
-      <p class=row id=r><span>Weather</span><button>Clear</button><button>Rain</button></p>
+      <p class=row id=t><span>Time</span><button>Live</button><button>Day</button><button>Dusk</button><button>Night</button><button>Dawn</button></p>
+      <p class=row id=r><span>Weather</span><button>Live</button><button>Clear</button><button>Rain</button></p>
       <p class=row id=q><span>Detail</span><button>Low</button><button>Medium</button><button>High</button></p>
       <div id=k>
         <p>
@@ -130,7 +132,7 @@ body:not(.g) #v { display: none; }
       <p id=h>Hold to fly forward · slide to steer · second finger to go faster</p>
     </div>
   </div>
-  <p id=f>Map data © <a href=https://www.openstreetmap.org/copyright target=_blank rel=noopener>OpenStreetMap contributors</a> · based on <a href=https://github.com/J-o-h-n-M/afterglow-city target=_blank rel=noopener>Afterglow City</a> and <a href=https://github.com/Noniv/abyssal-garden target=_blank rel=noopener>Abyssal Garden</a></p>
+  <p id=f>Map data © <a href=https://www.openstreetmap.org/copyright target=_blank rel=noopener>OpenStreetMap contributors</a> · based on <a href=https://github.com/J-o-h-n-M/afterglow-city target=_blank rel=noopener>John's WebGPU city</a> and <a href=https://github.com/Noniv/abyssal-garden target=_blank rel=noopener>Abyssal Garden</a></p>
 </div>
 <button id=o aria-label=Menu>≡</button>
 <p id=v></p>
@@ -156,7 +158,7 @@ const LEVELS = {
   },
 };
 const LEVEL_ORDER = ['low', 'medium', 'high'];
-const STORE_KEY = 'craiova-afterglow';
+const STORE_KEY = 'craiova-city';
 
 function loadPrefs() {
   try { return JSON.parse(localStorage.getItem(STORE_KEY)) || {}; } catch { return {}; }
@@ -552,7 +554,9 @@ async function buildWorld(Q, progress, city) {
     sprite(hx, h - 0.3, hz, LAMP, 5, 0.75);
     splat(hx, hz, 0.95, 0.68, 0.42, 6.5);
   }
+  const startPt = geo(44.318435, 23.800570);   // where you start: keep it clear of trees
   function tree(x, z, s = 1, conifer = false) {
+    if ((x - startPt[0]) ** 2 + (z - startPt[1]) ** 2 < 100) return;
     const tint = pickd([[0.06, 0.1, 0.045], [0.05, 0.085, 0.05], [0.08, 0.1, 0.04], [0.045, 0.075, 0.06]]);
     basic(G.cyl, TM.box(x, 1.5 * s, z, 0.35 * s, 3 * s, 0.35 * s), [0.06, 0.04, 0.03]);
     if (conifer) {
@@ -629,6 +633,7 @@ async function buildWorld(Q, progress, city) {
   const B = city.b;
   let buildingCount = 0;
   const tallest = [];
+  const bTop = new Map();          // roof height of every building box, by index in the data
   for (let i = 0; i < B.length; i += 8) {
     const x = B[i] / 4, z = B[i + 1] / 4, len = B[i + 2] / 2, wid = B[i + 3] / 2, ang = (B[i + 4] / 255) * Math.PI, h = B[i + 5] / 2;
     const kind = B[i + 6] & 7, roof = (B[i + 6] >> 3) & 1, shopRaw = B[i + 6] >> 4;
@@ -654,6 +659,7 @@ async function buildWorld(Q, progress, city) {
     collider(x, 0, z, len / 2, wid / 2, H + ridge, ang);
     footBox(x, z, u[0], u[1], len / 2, wid / 2);
     const top = H + ridge;
+    bTop.set(i, top);
     if (roof) {
       const tile = pickd([[0.3, 0.1, 0.06], [0.26, 0.09, 0.06], [0.2, 0.12, 0.09], [0.14, 0.14, 0.15]]);
       basic(G.prism, TM.yaw(x, H + ridge / 2, z, len + 0.7, ridge, wid + 0.8, yaw), tile);
@@ -815,7 +821,7 @@ async function buildWorld(Q, progress, city) {
       while (j < pts.length) {
         const [ax, az] = pts[i], [bx, bz] = pts[j], dx = bx - ax, dz = bz - az, l = Math.hypot(dx, dz);
         let ok = l < 240;
-        for (let k = i + 1; ok && k < j; k++) ok = Math.abs((pts[k][0] - ax) * dz - (pts[k][1] - az) * dx) / (l || 1) < 1.0;
+        for (let k = i + 1; ok && k < j; k++) ok = Math.abs((pts[k][0] - ax) * dz - (pts[k][1] - az) * dx) / (l || 1) < 0.6;
         if (!ok) break;
         len = l; j++;
       }
@@ -892,6 +898,50 @@ async function buildWorld(Q, progress, city) {
     for (let x = x0 + 8; x < x1; x += Q.lampStep * 0.9)
       for (let z = z0 + 8; z < z1; z += Q.lampStep * 0.9)
         if (pointInPoly(x, z, a.pts) && !footAt(x, z)) streetLamp(x, z, 0, 0, 5.5);
+  }
+
+  // ---------- a double-sided billboard that spells CERBU on the roof of the building at 44.318713, 23.801919 ----------
+  {
+    const [tx, tz] = geo(44.318713, 23.801919);
+    let bi = -1, bd = 1e9;
+    for (let i = 0; i < B.length; i += 8) {
+      if (!bTop.has(i)) continue;
+      const x = B[i] / 4, z = B[i + 1] / 4, len = B[i + 2] / 2, wid = B[i + 3] / 2, a = (B[i + 4] / 255) * Math.PI;
+      const dx = tx - x, dz = tz - z, lu = dx * Math.cos(a) + dz * Math.sin(a), lv = -dx * Math.sin(a) + dz * Math.cos(a);
+      const out = Math.max(Math.abs(lu) - len / 2, Math.abs(lv) - wid / 2, 0);   // 0 when the point is inside
+      if (out < bd) { bd = out; bi = i; }
+    }
+    if (bi >= 0 && bd < 40) {
+      const x = B[bi] / 4, z = B[bi + 1] / 4, len = B[bi + 2] / 2, wid = B[bi + 3] / 2, a = (B[bi + 4] / 255) * Math.PI, top = bTop.get(bi);
+      const u = [Math.cos(a), Math.sin(a)], v = [-Math.sin(a), Math.cos(a)];
+      // face the long side that looks towards the nearest street
+      let near = [1e9, 1e9], best = 1e9;
+      for (const rd2 of roads) for (const p of rd2.pts) { const d = Math.hypot(p[0] - x, p[1] - z); if (d < best) { best = d; near = p; } }
+      const side = (near[0] - x) * v[0] + (near[1] - z) * v[1] > 0 ? 1 : -1;
+      const N = [v[0] * side, v[1] * side], right = [N[1], -N[0]], yawR = Math.atan2(-right[1], right[0]);
+      const FONT = { C: ['01110', '10001', '10000', '10000', '10000', '10001', '01110'], E: ['11111', '10000', '10000', '11110', '10000', '10000', '11111'],
+        R: ['11110', '10001', '10001', '11110', '10100', '10010', '10001'], B: ['11110', '10001', '10001', '11110', '10001', '10001', '11110'],
+        U: ['10001', '10001', '10001', '10001', '10001', '10001', '01110'] };
+      const word = 'CERBU', cols = word.length * 6 - 1, cs = clamp((len * 0.85) / cols, 0.55, 1.5);
+      const W = cols * cs + 2 * cs, Hh = 7 * cs + 2 * cs, base = top + 3.2 + Hh / 2;
+      const at = (xo, yo, off) => [x + N[0] * (wid / 2 - 1.2 + off) + right[0] * xo, base + yo, z + N[1] * (wid / 2 - 1.2 + off) + right[1] * xo];
+      const pc = at(0, 0, 0);
+      basic(G.cube, TM.yaw(pc[0], pc[1], pc[2], W, Hh, 0.5, yawR), [0.03, 0.03, 0.04]);
+      for (const f of [-0.35, 0.35]) { const p = at(f * W, 0, 0); basic(G.cube, TM.box(p[0], top + 1.6, p[2], 0.3, 3.2, 0.3), [0.1, 0.1, 0.1]); }
+      const hue = [0.35, 0.75, 1.0];
+      // the word on both faces; seen from behind the letters are mirrored along the panel so that they read the right way round
+      for (const sd of [1, -1]) {
+        for (let li = 0; li < word.length; li++) for (let row = 0; row < 7; row++) for (let col = 0; col < 5; col++) {
+          if (FONT[word[li]][row][col] !== '1') continue;
+          const xo = (li * 6 + col - (cols - 1) / 2) * cs, yo = (3 - row) * cs, p = at(sd * xo, yo, 0.4 * sd);
+          emissive(G.cube, TM.yaw(p[0], p[1], p[2], cs * 0.9, cs * 0.9, 0.3, yawR), hue, 4.5);
+        }
+        for (let k = 0; k < 6; k++) { const p = at(sd * (k - 2.5) * (W / 7), 0, 1.2 * sd); sprite(p[0], p[1], p[2], hue, 5, 1.2 * cs); }
+      }
+      collider(pc[0], top + 1.5, pc[2], W / 2, 0.4, base + Hh / 2, Math.atan2(right[1], right[0]));
+      splat(x + N[0] * (wid / 2 + 6), z + N[1] * (wid / 2 + 6), 0.3, 0.6, 1.0, 14);
+      splat(x - N[0] * (wid / 2 - 8), z - N[1] * (wid / 2 - 8), 0.2, 0.4, 0.66, 12);
+    }
   }
 
   // ---------- 5. trees: parks, woods and gardens ----------
@@ -1119,9 +1169,13 @@ async function buildWorld(Q, progress, city) {
     { name: 'Electroputere and Ford', pos: [elec[0] - 300, 260, elec[1] + 520], at: [elec[0] + 300, 6, elec[1] - 180] },
   ];
 
+  // where you start: street level at 44.318435, 23.800570, looking east-south-east along the street (heading 102 degrees from north)
+  const heading = (102 * Math.PI) / 180;
+  const start = { pos: [startPt[0], 3.2, startPt[1]], at: [startPt[0] + Math.sin(heading) * 160, 9, startPt[1] - Math.cos(heading) * 160] };
+
   await tick(0.92, 'Uploading the city');
   return {
-    groups: G, layout, lightTex, views, center: sq,
+    groups: G, layout, lightTex, views, start, center: sq,
     collide: { boxes: new Float32Array(boxes), grid, CELL },
     consts: {},
     label: { street: streetAt, place: placeAt },
@@ -1204,16 +1258,16 @@ fn carPose(q: vec4f, phase: f32, t: f32) -> Pose {
   var P: Pose;
   P.pos = vec3f(q.x + cos(ang) * s, ROADY, q.y + sin(ang) * s);
   P.yaw = -ang;
-  P.fade = max(0.001, smoothstep(0.0, 9.0, s) * smoothstep(0.0, 9.0, q.w - s));
+  P.fade = max(0.001, smoothstep(0.0, 5.0, s) * smoothstep(0.0, 5.0, q.w - s));
   return P;
 }
 struct AR { w: vec3f, n: vec3f, em: f32 };
 fn animate(I: Inst, w0: vec3f, n0: vec3f, t: f32) -> AR {
   var r: AR; r.w = w0; r.n = n0; r.em = 1.0;
   let a = u32(I.p.y + 0.5);
-  if (a == 1u) {          // vehicle: drives its stretch of road, shrinking away at both ends
+  if (a == 1u) {          // vehicle: drives its stretch of road, shrinking away about its middle at both ends, never sinking into the road
     let P = carPose(I.q, I.p.w, t);
-    r.w = P.pos + rotY(w0 * P.fade, P.yaw); r.n = rotY(n0, P.yaw);
+    r.w = P.pos + rotY(vec3f(w0.x * P.fade, (w0.y - 1.0) * P.fade + 1.0, w0.z * P.fade), P.yaw); r.n = rotY(n0, P.yaw);
   } else if (a == 5u) {   // aircraft warning light
     r.em = select(0.0, 1.0, fract(t * 0.55 + I.p.w) < 0.14);
   }
@@ -2254,15 +2308,52 @@ const TIMES = {
     amb: [0.07, 0.07, 0.1], glow: [0.45, 0.33, 0.3], lit: 0.16, fog: 0.0006, stars: 0.05, exposure: 0.9, beams: 0,
   },
 };
-const TIME_ORDER = ['dusk', 'night', 'dawn'];
+TIMES.day = {
+  label: 'Day', skyTop: [0.16, 0.34, 0.72], skyHor: [0.62, 0.72, 0.86], sunDir: norm([0.35, 0.72, -0.5]), sunCol: [2.6, 2.3, 1.9],
+  amb: [0.26, 0.3, 0.4], glow: [0.12, 0.12, 0.12], lit: 0.03, fog: 0.00028, stars: 0, exposure: 0.55, beams: 0,
+};
+// 'live' follows the real sun over Craiova; the others are fixed
+const TIME_ORDER = ['live', 'day', 'dusk', 'night', 'dawn'];
+const WEATHER_ORDER = ['live', 'clear', 'rain'];
+const CRAIOVA = { lat: 44.3125, lon: 23.804 };
+// elevation of the sun over Craiova right now (degrees), and whether it is before noon
+function sunNow(date = new Date()) {
+  const rad = Math.PI / 180, d = date.getTime() / 86400000 + 2440587.5 - 2451545;
+  const g = (357.529 + 0.98560028 * d) * rad, L = (280.459 + 0.98564736 * d + 1.915 * Math.sin(g) + 0.02 * Math.sin(2 * g)) * rad;
+  const e = 23.439 * rad, ra = Math.atan2(Math.cos(e) * Math.sin(L), Math.cos(L)), dec = Math.asin(Math.sin(e) * Math.sin(L));
+  const ha = (18.697374558 + 24.06570982441908 * d) * 15 * rad + CRAIOVA.lon * rad - ra, lat = CRAIOVA.lat * rad;
+  const elev = Math.asin(Math.sin(lat) * Math.sin(dec) + Math.cos(lat) * Math.cos(dec) * Math.cos(ha)) / rad;
+  return { elev, morning: Math.sin(ha) < 0 };
+}
+function liveTime() {
+  const { elev, morning } = sunNow();
+  return elev > 6 ? 'day' : elev > -5 ? (morning ? 'dawn' : 'dusk') : 'night';
+}
+const craiovaClock = () => new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Bucharest' }).format(new Date());
 const VEC = ['skyTop', 'skyHor', 'sunDir', 'sunCol', 'amb', 'glow'], SCAL = ['lit', 'fog', 'stars', 'exposure', 'beams'];
-let timeKey = TIMES[prefs.time] ? prefs.time : 'dusk';
-let raining = !!prefs.rain;
+// every visit starts on live time and live weather; a choice made in the menu only lasts until the page is closed
+let timeKey = 'live';
+let weatherMode = 'live';
+let liveRain = false, liveTemp = null;
+const activeTime = () => (timeKey === 'live' ? liveTime() : timeKey);
+const isRaining = () => (weatherMode === 'live' ? liveRain : weatherMode === 'rain');
+let raining = isRaining();
 const env = { rain: raining ? 1 : 0, wet: raining ? 1 : 0 };
-for (const k of VEC) env[k] = [...TIMES[timeKey][k]];
-for (const k of SCAL) env[k] = TIMES[timeKey][k];
+for (const k of VEC) env[k] = [...TIMES[activeTime()][k]];
+for (const k of SCAL) env[k] = TIMES[activeTime()][k];
+// the weather in Craiova right now, from Open-Meteo (free, no key; only the coordinates of Craiova are sent). If it cannot be reached it stays clear.
+async function fetchWeather() {
+  try {
+    const r = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${CRAIOVA.lat}&longitude=${CRAIOVA.lon}&current=temperature_2m,weather_code,precipitation`, { cache: 'no-store' });
+    const c = (await r.json()).current, code = c.weather_code;
+    liveRain = c.precipitation > 0.05 || (code >= 51 && code <= 67) || (code >= 80 && code <= 82) || code >= 95;
+    liveTemp = Math.round(c.temperature_2m);
+    updateMenuButtons();
+  } catch { /* offline: the live weather stays clear */ }
+}
 function stepEnv(dt) {
-  const T = TIMES[timeKey], k = 1 - Math.exp(-dt * 1.3);
+  const T = TIMES[activeTime()], k = 1 - Math.exp(-dt * 1.3);
+  raining = isRaining();
   for (const key of VEC) for (let i = 0; i < 3; i++) env[key][i] += (T[key][i] - env[key][i]) * k;
   env.sunDir = norm(env.sunDir);
   for (const key of SCAL) env[key] += (T[key] - env[key]) * k;
@@ -2351,16 +2442,22 @@ function toast(msg) {
 }
 function updateMenuButtons() {
   [...$('t').querySelectorAll('button')].forEach((b, i) => b.classList.toggle('on', TIME_ORDER[i] === timeKey));
-  [...$('r').querySelectorAll('button')].forEach((b, i) => b.classList.toggle('on', (i === 1) === raining));
+  [...$('r').querySelectorAll('button')].forEach((b, i) => b.classList.toggle('on', WEATHER_ORDER[i] === weatherMode));
+  $('t').firstElementChild.textContent = timeKey === 'live' ? `Time · ${craiovaClock()}` : 'Time';
+  $('r').firstElementChild.textContent = weatherMode === 'live' ? `Weather · ${liveRain ? 'rain' : 'clear'}${liveTemp === null ? '' : ' ' + liveTemp + '°'}` : 'Weather';
 }
-function setTime(k) { timeKey = k; const p = loadPrefs(); p.time = k; savePrefs(p); updateMenuButtons(); }
-function setRain(on) { raining = on; const p = loadPrefs(); p.rain = on; savePrefs(p); updateMenuButtons(); }
+function setTime(k) { timeKey = k; updateMenuButtons(); }
+function setWeather(m) { weatherMode = m; updateMenuButtons(); }
 function setSound(on) { soundOn = on; audio.setEnabled(on); const p = loadPrefs(); p.sound = on; savePrefs(p); }
 [...$('t').querySelectorAll('button')].forEach((b, i) => { b.onclick = () => setTime(TIME_ORDER[i]); });
-[...$('r').querySelectorAll('button')].forEach((b, i) => { b.onclick = () => setRain(i === 1); });
+[...$('r').querySelectorAll('button')].forEach((b, i) => { b.onclick = () => setWeather(WEATHER_ORDER[i]); });
 updateMenuButtons();
+fetchWeather();
+setInterval(fetchWeather, 600000);
+setInterval(updateMenuButtons, 30000);
 
 function enter() {
+  if (!entered) { lookAt(world.start.pos, world.start.at); collide(cam.pos); }
   entered = true; playing = true;
   setState('g');
   $('d').textContent = 'Resume';
@@ -2395,8 +2492,8 @@ addEventListener('keydown', (e) => {
   if (n) { const v = world.views[+n[1] - 1]; lookAt(v.pos, v.at); collide(cam.pos); toast(v.name); }
   if (e.code === 'KeyM') { setSound(!soundOn); toast(soundOn ? 'Sound on' : 'Sound off'); }
   if (e.code === 'KeyH') { showStats = !showStats; $('i').hidden = !showStats; }
-  if (e.code === 'KeyT') { setTime(TIME_ORDER[(TIME_ORDER.indexOf(timeKey) + 1) % 3]); toast(TIMES[timeKey].label); }
-  if (e.code === 'KeyR') { setRain(!raining); toast(raining ? 'Rain' : 'Clear sky'); }
+  if (e.code === 'KeyT') { setTime(TIME_ORDER[(TIME_ORDER.indexOf(timeKey) + 1) % TIME_ORDER.length]); toast(timeKey === 'live' ? `Craiova now: ${TIMES[activeTime()].label}` : TIMES[timeKey].label); }
+  if (e.code === 'KeyR') { setWeather(WEATHER_ORDER[(WEATHER_ORDER.indexOf(weatherMode) + 1) % WEATHER_ORDER.length]); toast(weatherMode === 'live' ? `Craiova now: ${liveRain ? 'rain' : 'clear sky'}` : weatherMode === 'rain' ? 'Rain' : 'Clear sky'); }
 });
 addEventListener('keyup', (e) => keys.delete(e.code));
 addEventListener('blur', () => keys.clear());

@@ -13,7 +13,7 @@ const cache = path.join(here, '.cache');
 mkdirSync(cache, { recursive: true });
 const force = process.argv.includes('--force');
 const ENDPOINT = 'https://overpass-api.de/api/interpreter';
-const UA = 'craiova-afterglow/0.1 (open source hobby project)';
+const UA = 'craiova-city/0.1 (open source hobby project)';
 
 // the window, with a little margin, cut into a grid so that no single answer is huge
 const m = 0.002;

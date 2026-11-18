@@ -1,5 +1,5 @@
 {
-  "name": "craiova-afterglow",
+  "name": "craiova",
   "private": true,
   "type": "module",
   "description": "Real-life Craiova at dusk, built from OpenStreetMap data, that you can fly through, rendered with WebGPU in a single HTML file",

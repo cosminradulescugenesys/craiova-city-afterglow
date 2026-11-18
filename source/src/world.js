@@ -155,7 +155,9 @@ async function buildWorld(Q, progress, city) {
     sprite(hx, h - 0.3, hz, LAMP, 5, 0.75);
     splat(hx, hz, 0.95, 0.68, 0.42, 6.5);
   }
+  const startPt = geo(44.318435, 23.800570);   // where you start: keep it clear of trees
   function tree(x, z, s = 1, conifer = false) {
+    if ((x - startPt[0]) ** 2 + (z - startPt[1]) ** 2 < 100) return;
     const tint = pickd([[0.06, 0.1, 0.045], [0.05, 0.085, 0.05], [0.08, 0.1, 0.04], [0.045, 0.075, 0.06]]);
     basic(G.cyl, TM.box(x, 1.5 * s, z, 0.35 * s, 3 * s, 0.35 * s), [0.06, 0.04, 0.03]);
     if (conifer) {
@@ -232,6 +234,7 @@ async function buildWorld(Q, progress, city) {
   const B = city.b;
   let buildingCount = 0;
   const tallest = [];
+  const bTop = new Map();          // roof height of every building box, by index in the data
   for (let i = 0; i < B.length; i += 8) {
     const x = B[i] / 4, z = B[i + 1] / 4, len = B[i + 2] / 2, wid = B[i + 3] / 2, ang = (B[i + 4] / 255) * Math.PI, h = B[i + 5] / 2;
     const kind = B[i + 6] & 7, roof = (B[i + 6] >> 3) & 1, shopRaw = B[i + 6] >> 4;
@@ -257,6 +260,7 @@ async function buildWorld(Q, progress, city) {
     collider(x, 0, z, len / 2, wid / 2, H + ridge, ang);
     footBox(x, z, u[0], u[1], len / 2, wid / 2);
     const top = H + ridge;
+    bTop.set(i, top);
     if (roof) {
       const tile = pickd([[0.3, 0.1, 0.06], [0.26, 0.09, 0.06], [0.2, 0.12, 0.09], [0.14, 0.14, 0.15]]);
       basic(G.prism, TM.yaw(x, H + ridge / 2, z, len + 0.7, ridge, wid + 0.8, yaw), tile);
@@ -418,7 +422,7 @@ async function buildWorld(Q, progress, city) {
       while (j < pts.length) {
         const [ax, az] = pts[i], [bx, bz] = pts[j], dx = bx - ax, dz = bz - az, l = Math.hypot(dx, dz);
         let ok = l < 240;
-        for (let k = i + 1; ok && k < j; k++) ok = Math.abs((pts[k][0] - ax) * dz - (pts[k][1] - az) * dx) / (l || 1) < 1.0;
+        for (let k = i + 1; ok && k < j; k++) ok = Math.abs((pts[k][0] - ax) * dz - (pts[k][1] - az) * dx) / (l || 1) < 0.6;
         if (!ok) break;
         len = l; j++;
       }
@@ -495,6 +499,50 @@ async function buildWorld(Q, progress, city) {
     for (let x = x0 + 8; x < x1; x += Q.lampStep * 0.9)
       for (let z = z0 + 8; z < z1; z += Q.lampStep * 0.9)
         if (pointInPoly(x, z, a.pts) && !footAt(x, z)) streetLamp(x, z, 0, 0, 5.5);
+  }
+
+  // ---------- a double-sided billboard that spells CERBU on the roof of the building at 44.318713, 23.801919 ----------
+  {
+    const [tx, tz] = geo(44.318713, 23.801919);
+    let bi = -1, bd = 1e9;
+    for (let i = 0; i < B.length; i += 8) {
+      if (!bTop.has(i)) continue;
+      const x = B[i] / 4, z = B[i + 1] / 4, len = B[i + 2] / 2, wid = B[i + 3] / 2, a = (B[i + 4] / 255) * Math.PI;
+      const dx = tx - x, dz = tz - z, lu = dx * Math.cos(a) + dz * Math.sin(a), lv = -dx * Math.sin(a) + dz * Math.cos(a);
+      const out = Math.max(Math.abs(lu) - len / 2, Math.abs(lv) - wid / 2, 0);   // 0 when the point is inside
+      if (out < bd) { bd = out; bi = i; }
+    }
+    if (bi >= 0 && bd < 40) {
+      const x = B[bi] / 4, z = B[bi + 1] / 4, len = B[bi + 2] / 2, wid = B[bi + 3] / 2, a = (B[bi + 4] / 255) * Math.PI, top = bTop.get(bi);
+      const u = [Math.cos(a), Math.sin(a)], v = [-Math.sin(a), Math.cos(a)];
+      // face the long side that looks towards the nearest street
+      let near = [1e9, 1e9], best = 1e9;
+      for (const rd2 of roads) for (const p of rd2.pts) { const d = Math.hypot(p[0] - x, p[1] - z); if (d < best) { best = d; near = p; } }
+      const side = (near[0] - x) * v[0] + (near[1] - z) * v[1] > 0 ? 1 : -1;
+      const N = [v[0] * side, v[1] * side], right = [N[1], -N[0]], yawR = Math.atan2(-right[1], right[0]);
+      const FONT = { C: ['01110', '10001', '10000', '10000', '10000', '10001', '01110'], E: ['11111', '10000', '10000', '11110', '10000', '10000', '11111'],
+        R: ['11110', '10001', '10001', '11110', '10100', '10010', '10001'], B: ['11110', '10001', '10001', '11110', '10001', '10001', '11110'],
+        U: ['10001', '10001', '10001', '10001', '10001', '10001', '01110'] };
+      const word = 'CERBU', cols = word.length * 6 - 1, cs = clamp((len * 0.85) / cols, 0.55, 1.5);
+      const W = cols * cs + 2 * cs, Hh = 7 * cs + 2 * cs, base = top + 3.2 + Hh / 2;
+      const at = (xo, yo, off) => [x + N[0] * (wid / 2 - 1.2 + off) + right[0] * xo, base + yo, z + N[1] * (wid / 2 - 1.2 + off) + right[1] * xo];
+      const pc = at(0, 0, 0);
+      basic(G.cube, TM.yaw(pc[0], pc[1], pc[2], W, Hh, 0.5, yawR), [0.03, 0.03, 0.04]);
+      for (const f of [-0.35, 0.35]) { const p = at(f * W, 0, 0); basic(G.cube, TM.box(p[0], top + 1.6, p[2], 0.3, 3.2, 0.3), [0.1, 0.1, 0.1]); }
+      const hue = [0.35, 0.75, 1.0];
+      // the word on both faces; seen from behind the letters are mirrored along the panel so that they read the right way round
+      for (const sd of [1, -1]) {
+        for (let li = 0; li < word.length; li++) for (let row = 0; row < 7; row++) for (let col = 0; col < 5; col++) {
+          if (FONT[word[li]][row][col] !== '1') continue;
+          const xo = (li * 6 + col - (cols - 1) / 2) * cs, yo = (3 - row) * cs, p = at(sd * xo, yo, 0.4 * sd);
+          emissive(G.cube, TM.yaw(p[0], p[1], p[2], cs * 0.9, cs * 0.9, 0.3, yawR), hue, 4.5);
+        }
+        for (let k = 0; k < 6; k++) { const p = at(sd * (k - 2.5) * (W / 7), 0, 1.2 * sd); sprite(p[0], p[1], p[2], hue, 5, 1.2 * cs); }
+      }
+      collider(pc[0], top + 1.5, pc[2], W / 2, 0.4, base + Hh / 2, Math.atan2(right[1], right[0]));
+      splat(x + N[0] * (wid / 2 + 6), z + N[1] * (wid / 2 + 6), 0.3, 0.6, 1.0, 14);
+      splat(x - N[0] * (wid / 2 - 8), z - N[1] * (wid / 2 - 8), 0.2, 0.4, 0.66, 12);
+    }
   }
 
   // ---------- 5. trees: parks, woods and gardens ----------
@@ -722,9 +770,13 @@ async function buildWorld(Q, progress, city) {
     { name: 'Electroputere and Ford', pos: [elec[0] - 300, 260, elec[1] + 520], at: [elec[0] + 300, 6, elec[1] - 180] },
   ];
 
+  // where you start: street level at 44.318435, 23.800570, looking east-south-east along the street (heading 102 degrees from north)
+  const heading = (102 * Math.PI) / 180;
+  const start = { pos: [startPt[0], 3.2, startPt[1]], at: [startPt[0] + Math.sin(heading) * 160, 9, startPt[1] - Math.cos(heading) * 160] };
+
   await tick(0.92, 'Uploading the city');
   return {
-    groups: G, layout, lightTex, views, center: sq,
+    groups: G, layout, lightTex, views, start, center: sq,
     collide: { boxes: new Float32Array(boxes), grid, CELL },
     consts: {},
     label: { street: streetAt, place: placeAt },
