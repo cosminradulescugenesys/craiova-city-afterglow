@@ -644,38 +644,108 @@ async function buildWorld(Q, progress, city) {
       if (L > (rl.tram ? 70 : 150)) tracks.push({ ax, az, bx, bz, L, tram: rl.tram });
     }
   }
-  let vehicles = 0;
-  for (const tr of tracks) {
-    if (rd() > (tr.tram ? 0.5 : 0.35)) continue;
-    const ang = Math.atan2(tr.bz - tr.az, tr.bx - tr.ax), pack = (ang < 0 ? ang + Math.PI * 2 : ang) + 8 * (tr.tram ? 9 : 22);
-    const q = [tr.ax, tr.az, pack, tr.L], cars = tr.tram ? 2 : 4, len = tr.tram ? 13 : 15, y0 = tr.tram ? 1.9 : 2.1;
-    const s0 = Rd(0, tr.L);
-    for (let k = 0; k < cars; k++) {
-      const ph = s0 - k * (len + 0.5);
-      const col = tr.tram ? [0.75, 0.6, 0.1, 0] : [0.7, 0.72, 0.75, 0];
-      G.cube.push(TM.box(0, y0, 0, len, tr.tram ? 3.2 : 3.4, tr.tram ? 2.5 : 3.0), col, [MAT.train, ANIM.car, seedN++, ph], q);
-      if (k === 0) for (const z of [-0.9, 0.9]) sprite(len / 2 + 0.1, 1.2, z, [1, 0.95, 0.85], 6, 0.5, ANIM.car, 1, ph, q);
-      if (k === cars - 1) for (const z of [-0.9, 0.9]) sprite(-len / 2 - 0.1, 1.2, z, [1, 0.06, 0.03], 4, 0.4, ANIM.car, -1, ph, q);
+  // ---------- routes: every vehicle drives a closed loop, so none ever has to appear or vanish ----------
+  const pathPts = [];                       // x, z, distance along the route, heading: the shader walks along these
+  function emitRoute(pts) {
+    const clean = [pts[0]];
+    for (let i = 1; i < pts.length; i++) if (Math.hypot(pts[i][0] - clean[clean.length - 1][0], pts[i][1] - clean[clean.length - 1][1]) > 0.05) clean.push(pts[i]);
+    if (clean.length < 3) return null;
+    const start = pathPts.length / 4;
+    let cum = 0, prev = 0;
+    for (let i = 0; i < clean.length; i++) {
+      const p = clean[i], nx = clean[i + 1];
+      const ang = nx ? Math.atan2(nx[1] - p[1], nx[0] - p[0]) : prev;
+      pathPts.push(p[0], p[1], cum, ang);
+      prev = ang;
+      if (nx) cum += Math.hypot(nx[0] - p[0], nx[1] - p[1]);
     }
-    vehicles++;
+    return { start, count: clean.length, L: cum };
+  }
+  // trains and trams run up and down their line
+  let vehicles = 0;
+  for (const rl of rails) {
+    let L = 0;
+    for (let i = 0; i + 1 < rl.pts.length; i++) L += Math.hypot(rl.pts[i + 1][0] - rl.pts[i][0], rl.pts[i + 1][1] - rl.pts[i][1]);
+    if (L < (rl.tram ? 150 : 400)) continue;
+    const rt = emitRoute(rl.pts.concat([...rl.pts].reverse().slice(1)));
+    if (!rt) continue;
+    const n = rl.tram ? Math.max(1, Math.round(L / 700)) : Math.max(1, Math.round(L / 2500));
+    for (let v = 0; v < n; v++) {
+      const q = [rt.start, rt.count, rl.tram ? 9 : 22, rt.L], cars = rl.tram ? 2 : 4, len = rl.tram ? 13 : 15, y0 = rl.tram ? 1.9 : 2.1, s0 = Rd(0, rt.L);
+      for (let k = 0; k < cars; k++) {
+        const ph = s0 - k * (len + 0.5), col = rl.tram ? [0.75, 0.6, 0.1, 0] : [0.7, 0.72, 0.75, 0];
+        G.cube.push(TM.box(0, y0, 0, len, rl.tram ? 3.2 : 3.4, rl.tram ? 2.5 : 3.0), col, [MAT.train, ANIM.car, seedN++, ph], q);
+        if (k === 0) for (const z of [-0.9, 0.9]) sprite(len / 2 + 0.1, 1.2, z, [1, 0.95, 0.85], 6, 0.5, ANIM.car, 1, ph, q);
+        if (k === cars - 1) for (const z of [-0.9, 0.9]) sprite(-len / 2 - 0.1, 1.2, z, [1, 0.06, 0.03], 4, 0.4, ANIM.car, -1, ph, q);
+      }
+      vehicles++;
+    }
   }
 
   // ---------- 9. traffic ----------
   await tick(0.75, 'Starting the traffic');
   const CARS = [[0.5, 0.05, 0.04], [0.06, 0.07, 0.09], [0.6, 0.6, 0.62], [0.12, 0.2, 0.35], [0.03, 0.03, 0.03], [0.35, 0.35, 0.37], [0.05, 0.18, 0.12], [0.55, 0.38, 0.05]];
   const dens = [1, 1, 1, 1.2, 2.4, 4];
-  let expected = 0;
-  for (const rn of runs) expected += (rn.L * (rn.r.ow ? rn.r.tot : rn.r.tot)) * (1 / dens[rn.r.cls]);
-  const thin = Math.min(1, Q.carCap / Math.max(1, (expected / (Q.carGap + 9)) * 1.0));
-  let carCount = 0;
-  function lane(ax, az, bx, bz, off, rn) {
-    const L = rn.L, dx = (bx - ax) / L, dz = (bz - az) / L;
-    const x0 = ax - dz * off, z0 = az + dx * off;           // the right-hand side of the direction of travel
-    let ang = Math.atan2(dz, dx); if (ang < 0) ang += Math.PI * 2;
-    const fast = rn.r.cls <= 2, speed = Math.round(fast ? Rd(12, 17) : Rd(6, 11));
-    const gap = (Q.carGap * dens[rn.r.cls]) / thin;
-    for (let s = Rd(0, gap); s < L - 8; s += gap * Rd(0.4, 1.6) + 9) {
-      const q = [x0, z0, ang + 8 * speed, L], bus = rn.r.cls <= 2 && rd() < 0.05;
+  // the street network as directed edges between junctions (one-way streets only one way)
+  const nodeId = new Map(), nodes = [], edges = [], outEdges = [];
+  const nid = (p) => { const k = key(p); let i = nodeId.get(k); if (i === undefined) { i = nodes.length; nodeId.set(k, i); nodes.push(p); } return i; };
+  const addEdge = (A, Bn, r, len) => { edges.push({ a: A, b: Bn, r, len }); (outEdges[A] = outEdges[A] || []).push(edges.length - 1); };
+  for (const r of roads) {
+    if (r.ped || r.cls > 5) continue;
+    for (let i = 0; i + 1 < r.pts.length; i++) {
+      const A = nid(r.pts[i]), Bn = nid(r.pts[i + 1]), len = Math.hypot(r.pts[i + 1][0] - r.pts[i][0], r.pts[i + 1][1] - r.pts[i][1]);
+      if (len < 0.3 || A === Bn) continue;
+      addEdge(A, Bn, r, len);
+      if (!r.ow) addEdge(Bn, A, r, len);
+    }
+  }
+  const startPool = [];
+  edges.forEach((e, i) => { if (e.len > 3 && (e.r.cls <= 4 || rd() < 0.15)) startPool.push(i); });
+  const Rt = mulberry32(777);
+  const turnW = [3, 2.5, 2, 1.6, 1, 0.3];
+  let carCount = 0, routeCount = 0;
+  // random walks that prefer to go straight on; a walk that comes back to a junction it has passed is a closed loop
+  for (let tries = 0; carCount < Q.carCap && tries < 6000 && startPool.length; tries++) {
+    const e0 = startPool[Math.floor(Rt() * startPool.length)];
+    const seq = [e0], seen = new Map([[edges[e0].a, 0]]);
+    let node = edges[e0].b, closeAt = -1, total = edges[e0].len;
+    for (let step = 0; step < 900 && total < 5000; step++) {
+      if (seen.has(node)) { closeAt = seen.get(node); break; }
+      seen.set(node, seq.length);
+      const last = edges[seq[seq.length - 1]], hx = nodes[last.b][0] - nodes[last.a][0], hz = nodes[last.b][1] - nodes[last.a][1];
+      let opts = (outEdges[node] || []).filter((i) => edges[i].b !== last.a);
+      if (!opts.length) opts = outEdges[node] || [];
+      if (!opts.length) break;
+      let sum = 0;
+      const ws = opts.map((i) => {
+        const e = edges[i], dx = nodes[e.b][0] - nodes[e.a][0], dz = nodes[e.b][1] - nodes[e.a][1];
+        const turn = Math.abs(Math.atan2(hx * dz - hz * dx, hx * dx + hz * dz)), w = (0.25 + Math.exp(-turn / 0.9)) * turnW[e.r.cls];
+        sum += w; return w;
+      });
+      let pick = Rt() * sum, k = 0;
+      while (k < opts.length - 1 && (pick -= ws[k]) > 0) k++;
+      seq.push(opts[k]); total += edges[opts[k]].len; node = edges[opts[k]].b;
+    }
+    if (closeAt < 0) continue;
+    const cyc = seq.slice(closeAt);
+    let L = 0, dsum = 0, fastLen = 0;
+    for (const i of cyc) { L += edges[i].len; dsum += dens[edges[i].r.cls] * edges[i].len; if (edges[i].r.cls <= 2) fastLen += edges[i].len; }
+    if (L < 250) continue;
+    // the lane of this loop on every street it uses, driving on the right
+    const lane0 = Math.floor(Rt() * 4), pts = [];
+    for (const i of cyc) {
+      const e = edges[i], A = nodes[e.a], Bp = nodes[e.b], r = e.r, nx = -(Bp[1] - A[1]) / e.len, nz = (Bp[0] - A[0]) / e.len;
+      const lw = (r.w - 1) / r.tot, off = r.ow ? ((lane0 % r.tot) + 0.5 - r.tot / 2) * lw : ((lane0 % Math.max(1, Math.floor(r.tot / 2))) + 0.5) * lw;
+      pts.push([A[0] + nx * off, A[1] + nz * off], [Bp[0] + nx * off, Bp[1] + nz * off]);
+    }
+    pts.push(pts[0]);
+    const rt = emitRoute(pts);
+    if (!rt) continue;
+    const meanDens = dsum / L, fast = fastLen > L * 0.5, speed = Math.round(fast ? Rd(12, 17) : Rd(6, 11));
+    const spacing = Q.carGap * meanDens + 9, n = Math.min(Math.floor(rt.L / spacing), Q.carCap - carCount);
+    routeCount++;
+    for (let c = 0; c < n; c++) {
+      const s = (c + Rd(0, 0.45)) * (rt.L / n), q = [rt.start, rt.count, speed, rt.L], bus = meanDens <= 1.2 && rd() < 0.05;
       if (bus) {
         G.cube.push(TM.box(0, 1.8, 0, 11, 2.9, 2.5), [0.75, 0.75, 0.72, 0], [MAT.train, ANIM.car, seedN++, s], q);
         for (const z of [-0.8, 0.8]) { sprite(5.55, 0.9, z, [1, 0.92, 0.8], 4, 0.4, ANIM.car, 1, s, q); sprite(-5.55, 0.9, z, [1, 0.06, 0.03], 3, 0.32, ANIM.car, -1, s, q); }
@@ -686,19 +756,6 @@ async function buildWorld(Q, progress, city) {
         for (const z of [-0.62, 0.62]) { sprite(2.22, 0.78, z, [1, 0.92, 0.8], 4, 0.35, ANIM.car, 1, s, q); sprite(-2.22, 0.85, z, [1, 0.06, 0.03], 3, 0.3, ANIM.car, -1, s, q); }
       }
       carCount++;
-    }
-  }
-  for (const rn of runs) {
-    const r = rn.r, lw = (r.w - 1) / (r.ow ? r.tot : r.tot);
-    if (r.cls === 5 && rd() < 0.5) continue;
-    if (r.ow) {
-      for (let k = 0; k < r.tot; k++) lane(rn.ax, rn.az, rn.bx, rn.bz, (k + 0.5 - r.tot / 2) * lw, rn);
-    } else {
-      const per = Math.max(1, Math.floor(r.tot / 2));
-      for (let k = 0; k < per; k++) {
-        lane(rn.ax, rn.az, rn.bx, rn.bz, (k + 0.5) * lw, rn);
-        lane(rn.bx, rn.bz, rn.ax, rn.az, (k + 0.5) * lw, rn);
-      }
     }
   }
 
@@ -801,7 +858,7 @@ async function buildWorld(Q, progress, city) {
 
   await tick(0.92, 'Uploading the city');
   return {
-    groups: G, layout, lightTex, views, start, center: sq,
+    groups: G, layout, lightTex, views, start, center: sq, path: new Float32Array(pathPts),
     collide: { boxes: new Float32Array(boxes), grid, CELL },
     consts: {},
     label: { street: streetAt, place: placeAt },

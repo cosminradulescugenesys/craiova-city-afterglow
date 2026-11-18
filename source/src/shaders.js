@@ -29,6 +29,7 @@ struct Inst { m0: vec4f, m1: vec4f, m2: vec4f, col: vec4f, p: vec4f, q: vec4f };
 @group(0) @binding(3) var layoutTex: texture_2d<f32>;
 @group(0) @binding(4) var samp: sampler;
 @group(0) @binding(5) var reflTex: texture_2d<f32>;
+@group(0) @binding(6) var<storage, read> path: array<vec4f>;   // routes: x, z, distance along the route, heading
 
 const PI = 3.14159265;
 const WORLD = ${f(WORLD)};
@@ -64,23 +65,30 @@ fn rotX(v: vec3f, a: f32) -> vec3f { let c = cos(a); let s = sin(a); return vec3
 fn rotZ(v: vec3f, a: f32) -> vec3f { let c = cos(a); let s = sin(a); return vec3f(c * v.x - s * v.y, s * v.x + c * v.y, v.z); }
 
 // ---------- animation: everything that moves is moved here, on the GPU ----------
-// vehicles drive along a straight stretch of road: q = (start x, start z, heading + 8 * speed, length), phase = start offset
+// vehicles drive a closed loop of road: q = (first point of the route, number of points, speed, length of the loop), phase = start offset
 struct Pose { pos: vec3f, yaw: f32, fade: f32 };
 fn carPose(q: vec4f, phase: f32, t: f32) -> Pose {
-  let sp = floor(q.z / 8.0);
-  let ang = q.z - 8.0 * sp;
-  let s = fract((phase + t * sp) / q.w) * q.w;
+  let s = fract((phase + t * q.z) / q.w) * q.w;
+  var lo = u32(q.x + 0.5);
+  var hi = lo + u32(q.y + 0.5) - 1u;
+  for (var k = 0; k < 14; k++) {
+    if (hi - lo <= 1u) { break; }
+    let mid = (lo + hi) >> 1u;
+    if (path[mid].z <= s) { lo = mid; } else { hi = mid; }
+  }
+  let a = path[lo]; let b = path[lo + 1u];
+  let f = clamp((s - a.z) / max(b.z - a.z, 0.001), 0.0, 1.0);
   var P: Pose;
-  P.pos = vec3f(q.x + cos(ang) * s, ROADY, q.y + sin(ang) * s);
-  P.yaw = -ang;
-  P.fade = max(0.001, smoothstep(0.0, 5.0, s) * smoothstep(0.0, 5.0, q.w - s));
+  P.pos = vec3f(mix(a.x, b.x, f), ROADY, mix(a.y, b.y, f));
+  P.yaw = -a.w;
+  P.fade = 1.0;
   return P;
 }
 struct AR { w: vec3f, n: vec3f, em: f32 };
 fn animate(I: Inst, w0: vec3f, n0: vec3f, t: f32) -> AR {
   var r: AR; r.w = w0; r.n = n0; r.em = 1.0;
   let a = u32(I.p.y + 0.5);
-  if (a == 1u) {          // vehicle: drives its stretch of road, shrinking away about its middle at both ends, never sinking into the road
+  if (a == 1u) {          // vehicle: drives its stretch of road, following its route
     let P = carPose(I.q, I.p.w, t);
     r.w = P.pos + rotY(vec3f(w0.x * P.fade, (w0.y - 1.0) * P.fade + 1.0, w0.z * P.fade), P.yaw); r.n = rotY(n0, P.yaw);
   } else if (a == 5u) {   // aircraft warning light

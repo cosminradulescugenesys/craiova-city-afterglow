@@ -40,6 +40,10 @@ async function createRenderer(canvas, Q, world, onLost) {
   const instBuf = device.createBuffer({ size: Math.max(96, total * 96), usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
   for (const k of order) if (ranges[k].count) device.queue.writeBuffer(instBuf, ranges[k].first * 96, world.groups[k].data());
 
+  // ---- the routes the vehicles drive ----
+  const pathBuf = device.createBuffer({ size: Math.max(16, world.path.byteLength), usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+  if (world.path.length) device.queue.writeBuffer(pathBuf, 0, world.path);
+
   // ---- ground textures ----
   const tex2d = (n, data) => {
     const t = device.createTexture({ size: [n, n], format: 'rgba8unorm', usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST });
@@ -70,6 +74,7 @@ async function createRenderer(canvas, Q, world, onLost) {
       { binding: 3, visibility: VF, texture: { sampleType: 'float' } },
       { binding: 4, visibility: VF, sampler: { type: 'filtering' } },
       { binding: 5, visibility: VF, texture: { sampleType: 'float' } },
+      { binding: 6, visibility: VF, buffer: { type: 'read-only-storage' } },
     ],
   });
   const layout = device.createPipelineLayout({ bindGroupLayouts: [bgl] });
@@ -123,7 +128,7 @@ async function createRenderer(canvas, Q, world, onLost) {
     entries: [
       { binding: 0, resource: { buffer: ub } }, { binding: 1, resource: { buffer: instBuf } },
       { binding: 2, resource: lightTex.createView() }, { binding: 3, resource: layoutTex.createView() },
-      { binding: 4, resource: sampler }, { binding: 5, resource: refl.createView() },
+      { binding: 4, resource: sampler }, { binding: 5, resource: refl.createView() }, { binding: 6, resource: { buffer: pathBuf } },
     ],
   });
   const bgRefl = sceneBG(uRefl, dummy);
