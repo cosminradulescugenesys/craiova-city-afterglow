@@ -554,9 +554,30 @@ async function buildWorld(Q, progress, city) {
     sprite(hx, h - 0.3, hz, LAMP, 5, 0.75);
     splat(hx, hz, 0.95, 0.68, 0.42, 6.5);
   }
+  // every street, pedestrian street and railway as segments with a half width, so that nothing grows on them
+  const segGrid = new Map();
+  function addSeg(ax, az, bx, bz, hw) {
+    const x0 = Math.min(ax, bx) - hw - 2, x1 = Math.max(ax, bx) + hw + 2, z0 = Math.min(az, bz) - hw - 2, z1 = Math.max(az, bz) + hw + 2;
+    for (let gx = Math.floor(x0 / 30); gx <= Math.floor(x1 / 30); gx++)
+      for (let gz = Math.floor(z0 / 30); gz <= Math.floor(z1 / 30); gz++) {
+        const k = gx * 100003 + gz;
+        if (!segGrid.has(k)) segGrid.set(k, []);
+        segGrid.get(k).push(ax, az, bx, bz, hw);
+      }
+  }
+  function onRoad(x, z, margin) {
+    const l = segGrid.get(Math.floor(x / 30) * 100003 + Math.floor(z / 30));
+    if (!l) return false;
+    for (let k = 0; k < l.length; k += 5) {
+      const dx = l[k + 2] - l[k], dz = l[k + 3] - l[k + 1], q = dx * dx + dz * dz || 1;
+      const t = clamp(((x - l[k]) * dx + (z - l[k + 1]) * dz) / q, 0, 1);
+      if (Math.hypot(x - (l[k] + dx * t), z - (l[k + 1] + dz * t)) < l[k + 4] + margin) return true;
+    }
+    return false;
+  }
   const startPt = geo(44.318435, 23.800570);   // where you start: keep it clear of trees
   function tree(x, z, s = 1, conifer = false) {
-    if ((x - startPt[0]) ** 2 + (z - startPt[1]) ** 2 < 100) return;
+    if ((x - startPt[0]) ** 2 + (z - startPt[1]) ** 2 < 100 || onRoad(x, z, 1.5)) return;   // never in the street, on the tracks or on the starting spot
     const tint = pickd([[0.06, 0.1, 0.045], [0.05, 0.085, 0.05], [0.08, 0.1, 0.04], [0.045, 0.075, 0.06]]);
     basic(G.cyl, TM.box(x, 1.5 * s, z, 0.35 * s, 3 * s, 0.35 * s), [0.06, 0.04, 0.03]);
     if (conifer) {
@@ -750,6 +771,9 @@ async function buildWorld(Q, progress, city) {
   };
   const yOff = (r) => (7 - r.cls) * 0.012 + (r.id % 5) * 0.002;
   const key = (p) => Math.round(p[0] * 2) + ',' + Math.round(p[1] * 2);
+  for (const r of roads) r.w = WID(r);
+  for (const r of roads) if (r.cls <= 6 || r.ped) for (let i = 0; i + 1 < r.pts.length; i++) addSeg(r.pts[i][0], r.pts[i][1], r.pts[i + 1][0], r.pts[i + 1][1], r.w / 2);
+  for (const rl of rails) for (let i = 0; i + 1 < rl.pts.length; i++) addSeg(rl.pts[i][0], rl.pts[i][1], rl.pts[i + 1][0], rl.pts[i + 1][1], rl.tram ? 1.8 : 3);
   const junctions = new Map();
   for (const r of roads) {
     r.w = WID(r);
